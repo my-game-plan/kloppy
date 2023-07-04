@@ -39,7 +39,7 @@ from kloppy.domain import (
     BodyPartQualifier,
     BodyPart,
     PassType,
-    PassQualifier,
+    PassQualifiers,
 )
 from kloppy.exceptions import DeserializationError
 from kloppy.infra.serializers.event.deserializer import EventDataDeserializer
@@ -379,30 +379,38 @@ def _get_event_qualifiers(raw_qualifiers: List) -> List[Qualifier]:
     qualifiers = []
     qualifiers.extend(_get_event_setpiece_qualifiers(raw_qualifiers))
     qualifiers.extend(_get_event_bodypart_qualifiers(raw_qualifiers))
-    qualifiers.extend(_get_event_pass_qualifiers(raw_qualifiers))
+    pass_qualifiers = _get_event_pass_qualifiers(raw_qualifiers)
+    if pass_qualifiers.values:
+        qualifiers.append(pass_qualifiers)
     qualifiers.extend(_get_event_card_qualifiers(raw_qualifiers))
     return qualifiers
 
 
-def _get_event_pass_qualifiers(raw_qualifiers: List) -> List[Qualifier]:
-    qualifiers = []
+def _get_event_pass_qualifiers(raw_qualifiers: List) -> PassQualifiers:
+
+    qualifier_values = []
     if EVENT_QUALIFIER_CROSS in raw_qualifiers:
-        qualifiers.append(PassQualifier(value=PassType.CROSS))
+        qualifier_values.append(PassType.CROSS)
     elif EVENT_QUALIFIER_LONG_BALL in raw_qualifiers:
-        qualifiers.append(PassQualifier(value=PassType.LONG_BALL))
+        qualifier_values.append(PassType.LONG_BALL)
     elif EVENT_QUALIFIER_CHIPPED_BALL in raw_qualifiers:
-        qualifiers.append(PassQualifier(value=PassType.CHIPPED_PASS))
+        qualifier_values.append(PassType.CHIPPED_PASS)
     elif EVENT_QUALIFIER_THROUGH_BALL in raw_qualifiers:
-        qualifiers.append(PassQualifier(value=PassType.THROUGH_BALL))
+        qualifier_values.append(PassType.THROUGH_BALL)
     elif EVENT_QUALIFIER_LAUNCH in raw_qualifiers:
-        qualifiers.append(PassQualifier(value=PassType.LAUNCH))
+        qualifier_values.append(PassType.LAUNCH)
     elif EVENT_QUALIFIER_FLICK_ON in raw_qualifiers:
-        qualifiers.append(PassQualifier(value=PassType.FLICK_ON))
+        qualifier_values.append(PassType.FLICK_ON)
     elif EVENT_QUALIFIER_ASSIST in raw_qualifiers:
-        qualifiers.append(PassQualifier(value=PassType.ASSIST))
+        qualifier_values.append(PassType.ASSIST)
     elif EVENT_QUALIFIER_ASSIST_2ND in raw_qualifiers:
-        qualifiers.append(PassQualifier(value=PassType.ASSIST_2ND))
-    return qualifiers
+        qualifier_values.append(PassType.ASSIST_2ND)
+
+    # Comment this line to see behaviour for multiple PassQualifiers values
+    # qualifier_values.append(PassType.HAND_PASS)
+
+    return PassQualifiers(values=qualifier_values)
+
 
 
 def _get_event_setpiece_qualifiers(raw_qualifiers: List) -> List[Qualifier]:

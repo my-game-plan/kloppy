@@ -218,6 +218,14 @@ class EnumQualifier(Qualifier, ABC):
         return {f"{self.name}_type": self.value.value}
 
 
+class ListQualifier(List[Qualifier], ABC):
+    values: List
+    name: str
+
+    def to_dict(self):
+        return {f"{self.name}_type": [qualifier.value for qualifier in self.values]}
+
+
 class SetPieceType(Enum):
     """
     SetPieceType
@@ -301,8 +309,9 @@ class PassType(Enum):
 
 
 @dataclass
-class PassQualifier(EnumQualifier):
-    value: PassType
+class PassQualifiers(ListQualifier):
+    values: List[PassType]
+    name: str = "pass"
 
 
 class BodyPart(Enum):
@@ -410,7 +419,7 @@ class Event(DataRecord, ABC):
 
         Arguments:
             qualifier_type: one of the following QualifierTypes: [`SetPieceQualifier`][kloppy.domain.models.event.SetPieceQualifier]
-                [`BodyPartQualifier`][kloppy.domain.models.event.BodyPartQualifier] [`PassQualifier`][kloppy.domain.models.event.PassQualifier]
+                [`BodyPartQualifier`][kloppy.domain.models.event.BodyPartQualifier] [`PassQualifiers`][kloppy.domain.models.event.PassQualifiers]
 
         Examples:
             >>> from kloppy.domain import SetPieceQualifier
@@ -880,7 +889,7 @@ __all__ = [
     "SetPieceType",
     "Qualifier",
     "SetPieceQualifier",
-    "PassQualifier",
+    "PassQualifiers",
     "PassType",
     "BodyPart",
     "BodyPartQualifier",
