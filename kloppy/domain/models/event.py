@@ -161,6 +161,7 @@ class EventType(Enum):
         PLAYER_ON (EventType):
         PLAYER_OFF (EventType):
         RECOVERY (EventType):
+        BAD_TOUCH (EventType):
         BALL_OUT (EventType):
         FOUL_COMMITTED (EventType):
         FORMATION_CHANGE (EventType):
@@ -177,6 +178,7 @@ class EventType(Enum):
     PLAYER_ON = "PLAYER_ON"
     PLAYER_OFF = "PLAYER_OFF"
     RECOVERY = "RECOVERY"
+    BAD_TOUCH = "BAD_TOUCH"
     BALL_OUT = "BALL_OUT"
     FOUL_COMMITTED = "FOUL_COMMITTED"
     FORMATION_CHANGE = "FORMATION_CHANGE"
@@ -751,6 +753,21 @@ class RecoveryEvent(Event):
 
 @dataclass(repr=False)
 @docstring_inherit_attributes(Event)
+class BadTouchEvent(Event):
+    """
+    BadTouchEvent
+
+    Attributes:
+        event_type (EventType): `EventType.BAD_TOUCH` (See [`EventType`][kloppy.domain.models.event.EventType])
+        event_name (str): "bad_touch"
+    """
+
+    event_type: EventType = EventType.BAD_TOUCH
+    event_name: str = "bad_touch"
+
+
+@dataclass(repr=False)
+@docstring_inherit_attributes(Event)
 class BallOutEvent(Event):
     """
     BallOutEvent
@@ -875,6 +892,7 @@ __all__ = [
     "FormationChangeEvent",
     "EventDataset",
     "RecoveryEvent",
+    "BadTouchEvent",
     "FoulCommittedEvent",
     "BallOutEvent",
     "SetPieceType",

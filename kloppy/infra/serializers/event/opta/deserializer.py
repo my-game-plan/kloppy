@@ -64,6 +64,7 @@ EVENT_TYPE_FOUL_COMMITTED = 4
 EVENT_TYPE_CARD = 17
 EVENT_TYPE_RECOVERY = 49
 EVENT_TYPE_FORMATION_CHANGE = 40
+EVENT_TYPE_BALL_TOUCH = 61
 
 BALL_OUT_EVENTS = [EVENT_TYPE_BALL_OUT, EVENT_TYPE_CORNER_AWARDED]
 
@@ -76,6 +77,7 @@ BALL_OWNING_EVENTS = (
     EVENT_TYPE_SHOT_SAVED,
     EVENT_TYPE_SHOT_GOAL,
     EVENT_TYPE_RECOVERY,
+    EVENT_TYPE_BALL_TOUCH,
 )
 
 EVENT_QUALIFIER_GOAL_KICK = 124
@@ -639,6 +641,13 @@ class OptaDeserializer(EventDataDeserializer[OptaInputs]):
 
                     elif type_id == EVENT_TYPE_RECOVERY:
                         event = self.event_factory.build_recovery(
+                            result=None,
+                            qualifiers=None,
+                            **generic_event_kwargs,
+                        )
+
+                    elif type_id == EVENT_TYPE_BALL_TOUCH:
+                        event = self.event_factory.build_bad_touch(
                             result=None,
                             qualifiers=None,
                             **generic_event_kwargs,

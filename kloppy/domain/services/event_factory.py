@@ -9,6 +9,7 @@ from kloppy.domain import (
     GenericEvent,
     TakeOnEvent,
     RecoveryEvent,
+    BadTouchEvent,
     CarryEvent,
     FormationChangeEvent,
     BallOutEvent,
@@ -75,6 +76,9 @@ class EventFactory:
 
     def build_recovery(self, **kwargs) -> RecoveryEvent:
         return create_event(RecoveryEvent, **kwargs)
+
+    def build_bad_touch(self, **kwargs) -> BadTouchEvent:
+        return create_event(BadTouchEvent, **kwargs)
 
     def build_take_on(self, **kwargs) -> TakeOnEvent:
         return create_event(TakeOnEvent, **kwargs)
