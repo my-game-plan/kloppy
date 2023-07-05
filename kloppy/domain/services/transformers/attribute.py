@@ -232,7 +232,13 @@ class DefaultEventTransformer(EventAttributeTransformer):
 
         if event.qualifiers:
             for qualifier in event.qualifiers:
-                row.update(qualifier.to_dict())
+                if qualifier.multiple_values:
+                    qualifier_key = f"{qualifier.name}_type"
+                    row.setdefault(qualifier_key, []).append(
+                        qualifier.value.value
+                    )
+                else:
+                    row.update(qualifier.to_dict())
 
         if self.include:
             return {k: row[k] for k in self.include}

@@ -188,6 +188,7 @@ class EventType(Enum):
 @dataclass
 class Qualifier(ABC):
     value: None
+    multiple_values: bool
 
     @abstractmethod
     def to_dict(self):
@@ -206,6 +207,7 @@ class Qualifier(ABC):
 @dataclass
 class BoolQualifier(Qualifier, ABC):
     value: bool
+    multiple_values: bool = False
 
     def to_dict(self):
         return {f"is_{self.name}": self.value}
@@ -213,9 +215,13 @@ class BoolQualifier(Qualifier, ABC):
 
 class EnumQualifier(Qualifier, ABC):
     value: Enum
+    multiple_values: bool
 
     def to_dict(self):
         return {f"{self.name}_type": self.value.value}
+
+    def get_key(self):
+        return f"{self.name}_type"
 
 
 class SetPieceType(Enum):
@@ -249,6 +255,7 @@ class SetPieceQualifier(EnumQualifier):
     """
 
     value: SetPieceType
+    multiple_values: bool = False
 
 
 @dataclass
@@ -261,6 +268,7 @@ class CardQualifier(EnumQualifier):
     """
 
     value: CardType
+    multiple_values: bool = False
 
 
 class PassType(Enum):
@@ -303,6 +311,7 @@ class PassType(Enum):
 @dataclass
 class PassQualifier(EnumQualifier):
     value: PassType
+    multiple_values: bool = True
 
 
 class BodyPart(Enum):
@@ -342,6 +351,7 @@ class BodyPart(Enum):
 @dataclass
 class BodyPartQualifier(EnumQualifier):
     value: BodyPart
+    multiple_values: bool = False
 
 
 class GoalkeeperAction(Enum):
@@ -352,6 +362,7 @@ class GoalkeeperAction(Enum):
 @dataclass
 class GoalkeeperActionQualifier(EnumQualifier):
     value: GoalkeeperAction
+    multiple_values: bool = False
 
 
 @dataclass
@@ -421,6 +432,25 @@ class Event(DataRecord, ABC):
             for qualifier in self.qualifiers:
                 if isinstance(qualifier, qualifier_type):
                     return qualifier.value
+        return None
+
+    def get_qualifier_values(self, qualifier_type: Type[Qualifier]):
+        """
+        Returns all Qualifiers of a certain type, or None if qualifier is not present.
+        Arguments:
+        Examples:
+            >>> from kloppy.domain import PassQualifier
+            >>> pass_event.get_qualifier_values(PassQualifier)
+        """
+        qualifiers = []
+        if self.qualifiers:
+            for qualifier in self.qualifiers:
+                if isinstance(qualifier, qualifier_type):
+                    qualifiers.append(qualifier)
+
+            if qualifiers:
+                return qualifiers
+
         return None
 
     def get_related_events(self) -> List["Event"]:
