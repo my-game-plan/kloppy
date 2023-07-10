@@ -361,7 +361,7 @@ class WyscoutDeserializerV3(EventDataDeserializer[WyscoutInputs]):
                     event = self.event_factory.build_pass(
                         **pass_event_args, **generic_event_args
                     )
-                elif primary_event_type == "duel":
+                elif (primary_event_type == "duel") and ("dribble" in secondary_event_types):
                     takeon_event_args = _parse_takeon(raw_event)
                     event = self.event_factory.build_take_on(
                         **takeon_event_args, **generic_event_args
