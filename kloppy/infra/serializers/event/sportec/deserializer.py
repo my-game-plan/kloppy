@@ -74,6 +74,120 @@ def _team_from_xml_elm(team_elm) -> Team:
     return team
 
 
+SPORTEC_FPS = 25
+
+"""Sportec uses fixed starting frame ids for each half"""
+SPORTEC_FIRST_HALF_STARTING_FRAME_ID = 10_000
+SPORTEC_SECOND_HALF_STARTING_FRAME_ID = 100_000
+SPORTEC_FIRST_EXTRA_HALF_STARTING_FRAME_ID = 200_000
+SPORTEC_SECOND_EXTRA_HALF_STARTING_FRAME_ID = 250_000
+
+
+class SportecMetadata(NamedTuple):
+    score: Score
+    teams: List[Team]
+    periods: List[Period]
+    x_max: float
+    y_max: float
+    fps: int
+
+
+def sportec_metadata_from_xml_elm(match_root) -> SportecMetadata:
+    """
+    Load metadata from Sportec XML element. This part is shared between event- and tracking data.
+    In the future this might move to a common.sportec package that provides functionality for both
+    deserializers.
+    """
+    x_max = float(match_root.MatchInformation.Environment.attrib["PitchX"])
+    y_max = float(match_root.MatchInformation.Environment.attrib["PitchY"])
+
+    team_path = objectify.ObjectPath("PutDataRequest.MatchInformation.Teams")
+    team_elms = list(team_path.find(match_root).iterchildren("Team"))
+
+    home_team = away_team = None
+    for team_elm in team_elms:
+        if team_elm.attrib["Role"] == "home":
+            home_team = _team_from_xml_elm(team_elm)
+        elif team_elm.attrib["Role"] == "guest":
+            away_team = _team_from_xml_elm(team_elm)
+        else:
+            raise DeserializationError(
+                f"Unknown side: {team_elm.attrib['Role']}"
+            )
+
+    if not home_team:
+        raise DeserializationError("Home team is missing from metadata")
+    if not away_team:
+        raise DeserializationError("Away team is missing from metadata")
+
+    (
+        home_score,
+        away_score,
+    ) = match_root.MatchInformation.General.attrib[
+        "Result"
+    ].split(":")
+    score = Score(home=int(home_score), away=int(away_score))
+    teams = [home_team, away_team]
+
+    if len(home_team.players) == 0 or len(away_team.players) == 0:
+        raise DeserializationError("LineUp incomplete")
+
+    # The periods can be rebuild from event data. Therefore, the periods attribute
+    # from the metadata can be ignored. It is required for tracking data.
+    other_game_information = (
+        match_root.MatchInformation.OtherGameInformation.attrib
+    )
+    periods = [
+        Period(
+            id=1,
+            start_timestamp=SPORTEC_FIRST_HALF_STARTING_FRAME_ID / SPORTEC_FPS,
+            end_timestamp=SPORTEC_FIRST_HALF_STARTING_FRAME_ID / SPORTEC_FPS
+            + float(other_game_information["TotalTimeFirstHalf"]) / 1000,
+        ),
+        Period(
+            id=2,
+            start_timestamp=SPORTEC_SECOND_HALF_STARTING_FRAME_ID
+            / SPORTEC_FPS,
+            end_timestamp=SPORTEC_SECOND_HALF_STARTING_FRAME_ID / SPORTEC_FPS
+            + float(other_game_information["TotalTimeSecondHalf"]) / 1000,
+        ),
+    ]
+
+    if "TotalTimeFirstHalfExtra" in other_game_information:
+        # Add two periods for extra time.
+        periods.extend(
+            [
+                Period(
+                    id=3,
+                    start_timestamp=SPORTEC_FIRST_EXTRA_HALF_STARTING_FRAME_ID
+                    / SPORTEC_FPS,
+                    end_timestamp=SPORTEC_FIRST_EXTRA_HALF_STARTING_FRAME_ID
+                    / SPORTEC_FPS
+                    + float(other_game_information["TotalTimeFirstHalfExtra"])
+                    / 1000,
+                ),
+                Period(
+                    id=4,
+                    start_timestamp=SPORTEC_SECOND_EXTRA_HALF_STARTING_FRAME_ID
+                    / SPORTEC_FPS,
+                    end_timestamp=SPORTEC_SECOND_EXTRA_HALF_STARTING_FRAME_ID
+                    / SPORTEC_FPS
+                    + float(other_game_information["TotalTimeSecondHalfExtra"])
+                    / 1000,
+                ),
+            ]
+        )
+
+    return SportecMetadata(
+        score=score,
+        teams=teams,
+        periods=periods,
+        x_max=x_max,
+        y_max=y_max,
+        fps=SPORTEC_FPS,
+    )
+
+
 def _event_chain_from_xml_elm(event_elm):
     chain = OrderedDict()
     current_elm = event_elm
@@ -461,13 +575,21 @@ class SportecEventDeserializer(EventDataDeserializer[SportecInputs]):
                         and previous_event.result == PassResult.COMPLETE
                     ):
                         if "X-Source-Position" in event_chain["Event"]:
-                            previous_event.receiver_coordinates = Point(
-                                x=float(
-                                    event_chain["Event"]["X-Source-Position"]
-                                ),
-                                y=float(
-                                    event_chain["Event"]["Y-Source-Position"]
-                                ),
+                            previous_event.receiver_coordinates = (
+                                transformer.change_point_dimensions(
+                                    Point(
+                                        x=float(
+                                            event_chain["Event"][
+                                                "X-Source-Position"
+                                            ]
+                                        ),
+                                        y=float(
+                                            event_chain["Event"][
+                                                "Y-Source-Position"
+                                            ]
+                                        ),
+                                    )
+                                )
                             )
 
                 if (
