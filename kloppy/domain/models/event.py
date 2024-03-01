@@ -494,6 +494,11 @@ class CounterAttackQualifier(BoolQualifier):
 
 
 @dataclass
+class UnderPressureQualifier(BoolQualifier):
+    pass
+
+
+@dataclass
 @docstring_inherit_attributes(DataRecord)
 class Event(DataRecord, ABC):
     """
@@ -1159,6 +1164,7 @@ __all__ = [
     "GoalkeeperAction",
     "GoalkeeperActionType",
     "CounterAttackQualifier",
+    "UnderPressureQualifier",
     "DuelEvent",
     "DuelType",
     "DuelQualifier",
