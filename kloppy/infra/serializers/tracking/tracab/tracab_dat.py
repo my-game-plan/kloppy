@@ -1,6 +1,6 @@
 import logging
 import warnings
-from typing import Dict, Optional, Union
+from typing import Tuple, Dict, NamedTuple, IO, Optional, Union
 
 from lxml import objectify
 
