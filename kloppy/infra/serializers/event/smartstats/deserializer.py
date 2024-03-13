@@ -247,7 +247,7 @@ def _get_event_set_piece_qualifier(
 ) -> List[SetPieceQualifier]:
     return (
         [SetPieceQualifier(value=SET_PIECES[set_piece_id])]
-        if set_piece_id and set_piece_id in SET_PIECES
+        if SET_PIECES.get(set_piece_id)
         else []
     )
 
@@ -257,7 +257,7 @@ def _get_event_body_part_qualifier(
 ) -> List[BodyPartQualifier]:
     return (
         [BodyPartQualifier(value=BODY_PARTS[body_part_id])]
-        if body_part_id in BODY_PARTS
+        if BODY_PARTS.get(body_part_id)
         else []
     )
 
