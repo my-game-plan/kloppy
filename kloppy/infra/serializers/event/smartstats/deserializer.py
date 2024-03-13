@@ -224,12 +224,26 @@ SHOT_IDS = [
     SHOT_INTO_THE_BAR_POST,
 ]
 TWO_PEOPLE_DUEL_IDS = [AERIAL_DUEL, DUEL]
-TAKE_ON_IDS = [DRIBBLE_PAST_OPPONENT_PLUS, DRIBBLE_PAST_OPPONENT_MINUS]
+TAKE_ON_IDS = [
+    DRIBBLING,
+    DRIBBLE_PAST_OPPONENT_PLUS,
+    DRIBBLE_PAST_OPPONENT_MINUS,
+]
 INTERCEPTION_IDS = [
     PASS_INTERCEPTION,
     CROSS_INTERCEPTION,
     KEY_PASS_INTERCEPTION,
 ]
+GOALKEEPER_IDS = [
+    GK_INTERCEPTION_PLUS,
+    GK_INTERCEPTION_MINUS,
+    EFFECTIVE_SAVE,
+    BOUNCING_SAVE_PLUS,
+    BOUNCING_SAVE_MINUS,
+    PICKING_UP,
+]
+
+BALL_OWNING_IDS = PASS_IDS + TAKE_ON_IDS + SHOT_IDS
 
 LINEUP_INFORMATION_EVENTS = (
     list(FORMATIONS.keys()) + list(POSITIONS.keys()) + [FIRST_HALF]
@@ -340,15 +354,27 @@ def _parse_shot(raw_event: Dict, action_id: int) -> Dict:
     )
 
 
-#
-# def _parse_goalkeeper_events(
-#         raw_qualifiers: Dict[int, str], type_id: int
-# ) -> Dict:
-#     qualifiers = _get_event_qualifiers(raw_qualifiers)
-#     goalkeeper_qualifiers = _get_goalkeeper_qualifiers(type_id)
-#     qualifiers.extend(goalkeeper_qualifiers)
-#
-#     return dict(result=None, qualifiers=qualifiers)
+def _get_goalkeeper_qualifiers(action_id: int) -> List[GoalkeeperQualifier]:
+    if action_id == PICKING_UP:
+        return [GoalkeeperQualifier(value=GoalkeeperActionType.PICK_UP)]
+    elif action_id in [
+        EFFECTIVE_SAVE,
+        BOUNCING_SAVE_PLUS,
+        BOUNCING_SAVE_MINUS,
+    ]:
+        return [GoalkeeperQualifier(value=GoalkeeperActionType.SAVE)]
+    elif action_id in [GK_INTERCEPTION_PLUS, GK_INTERCEPTION_MINUS]:
+        return [GoalkeeperQualifier(value=GoalkeeperActionType.CLAIM)]
+    else:
+        return []
+
+
+def _parse_goalkeeper_events(raw_event: Dict, action_id: int) -> Dict:
+    goalkeeper_qualifiers = _get_goalkeeper_qualifiers(action_id)
+    overall_qualifiers = _get_event_qualifiers(raw_event)
+    qualifiers = goalkeeper_qualifiers + overall_qualifiers
+
+    return dict(result=None, qualifiers=qualifiers)
 
 
 def _update_recipient_event_kwargs(
@@ -581,6 +607,7 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
             home=match_info["home_team_score"],
             away=match_info["away_team_score"],
         )
+        possession_team = None
 
         events = []
         for period_events_title, period_id in zip(
@@ -602,6 +629,8 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
                     period = next(
                         period for period in periods if period.id == period_id
                     )
+                    if action_id in BALL_OWNING_IDS:
+                        possession_team = team
 
                     if (
                         raw_event["relative_coord_x"]
@@ -619,7 +648,7 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
                     generic_event_kwargs = dict(
                         period=period,
                         timestamp=raw_event["second"],
-                        ball_owning_team=None,
+                        ball_owning_team=possession_team,
                         ball_state=None,
                         event_id=str(raw_event["id"]),
                         team=team,
@@ -644,6 +673,13 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
                         interception_kwargs = _parse_interception(raw_event)
                         event = self.event_factory.build_interception(
                             **interception_kwargs, **generic_event_kwargs
+                        )
+                    elif action_id in GOALKEEPER_IDS:
+                        goalkeeper_kwargs = _parse_goalkeeper_events(
+                            raw_event, action_id
+                        )
+                        event = self.event_factory.build_goalkeeper_event(
+                            **goalkeeper_kwargs, **generic_event_kwargs
                         )
                     elif action_id == TACKLE:
                         (
@@ -716,7 +752,7 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
             score=score,
             orientation=Orientation.ACTION_EXECUTING_TEAM,
             flags=None,
-            provider=Provider.OPTA,
+            provider=Provider.SMARTSTATS,
             coordinate_system=transformer.get_to_coordinate_system(),
         )
 
