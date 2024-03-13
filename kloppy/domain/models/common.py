@@ -97,6 +97,7 @@ class Provider(Enum):
     KLOPPY = "kloppy"
     DATAFACTORY = "datafactory"
     STATSPERFORM = "statsperform"
+    SMARTSTATS = "smartstats"
     OTHER = "other"
 
     def __str__(self):
@@ -739,6 +740,28 @@ class StatsPerformCoordinateSystem(CoordinateSystem):
         )
 
 
+@dataclass
+class SmartStatsCoordinateSystem(CoordinateSystem):
+    @property
+    def provider(self) -> Provider:
+        return Provider.SMARTSTATS
+
+    @property
+    def origin(self) -> Origin:
+        return Origin.BOTTOM_LEFT
+
+    @property
+    def vertical_orientation(self) -> VerticalOrientation:
+        return VerticalOrientation.BOTTOM_TO_TOP
+
+    @property
+    def pitch_dimensions(self) -> PitchDimensions:
+        return PitchDimensions(
+            x_dim=Dimension(0, 105),
+            y_dim=Dimension(0, 68),
+        )
+
+
 class DatasetType(Enum):
     """
     DatasetType
@@ -797,6 +820,9 @@ def build_coordinate_system(
 
     if provider == Provider.STATSPERFORM:
         return StatsPerformCoordinateSystem(normalized=False, **kwargs)
+
+    if provider == Provider.SMARTSTATS:
+        return SmartStatsCoordinateSystem(normalized=False, **kwargs)
 
 
 class DatasetFlag(Flag):
