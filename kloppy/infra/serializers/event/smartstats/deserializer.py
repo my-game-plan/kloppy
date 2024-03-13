@@ -99,9 +99,13 @@ BODY_PARTS = {
     5: BodyPart.OTHER,
 }
 SET_PIECES = {
+    1: None,  # Open-play
     2: SetPieceType.THROW_IN,
-    4: SetPieceType.FREE_KICK,
+    3: SetPieceType.FREE_KICK,  # Indirect free kick
+    4: SetPieceType.FREE_KICK,  # Free-kick attack
     5: SetPieceType.CORNER_KICK,
+    6: SetPieceType.PENALTY,
+    7: None,  # Broadcast interruption
     8: SetPieceType.GOAL_KICK,
 }
 
@@ -182,6 +186,7 @@ ACTION_IDS_TO_IGNORE = (
         MATCH_END,
         BALL_OUT_OF_THE_FIELD,
         LOST_BALL,
+        CREATED_OFFSIDE_TRAP,
     ]
     + list(FORMATIONS.keys())
     + list(POSITIONS.keys())
@@ -240,21 +245,21 @@ class SmartStatsInputs(NamedTuple):
 def _get_event_set_piece_qualifier(
     set_piece_id: Optional[int],
 ) -> List[SetPieceQualifier]:
-    if set_piece_id:
-        set_piece_type = SET_PIECES[set_piece_id]
-        return [SetPieceQualifier(value=set_piece_type)]
-    else:
-        return []
+    return (
+        [SetPieceQualifier(value=SET_PIECES[set_piece_id])]
+        if set_piece_id and set_piece_id in SET_PIECES
+        else []
+    )
 
 
 def _get_event_body_part_qualifier(
     body_part_id: Optional[int],
 ) -> List[BodyPartQualifier]:
-    if body_part_id:
-        body_part = BODY_PARTS[body_part_id]
-        return [BodyPartQualifier(value=body_part)]
-    else:
-        return []
+    return (
+        [BodyPartQualifier(value=BODY_PARTS[body_part_id])]
+        if body_part_id in BODY_PARTS
+        else []
+    )
 
 
 def _get_event_qualifiers(raw_event: Dict) -> List[Qualifier]:
@@ -317,9 +322,16 @@ def _parse_shot(raw_event: Dict, action_id: int) -> Dict:
         result = ShotResult.SAVED
 
     qualifiers = _get_event_qualifiers(raw_event)
-    result_coordinates = Point(
-        x=raw_event["gate_coord_x"], y=raw_event["gate_coord_y"]
-    )
+    if (
+        result == ShotResult.BLOCKED
+        or raw_event["gate_coord_x"] is None
+        or raw_event["gate_coord_y"] is None
+    ):
+        result_coordinates = None
+    else:
+        result_coordinates = Point(
+            x=raw_event["gate_coord_x"], y=raw_event["gate_coord_y"]
+        )
 
     return dict(
         result=result,
@@ -431,10 +443,16 @@ def _parse_pass(raw_event: Dict, action_id: int, team: Team) -> Dict:
         result = PassResult.INCOMPLETE
     elif action_id in PASS_ACCURATE_IDS:
         result = PassResult.COMPLETE
-        receiver_coordinates = Point(
-            x=raw_event["relative_coord_x_destination"],
-            y=raw_event["relative_coord_y_destination"],
-        )
+        if (
+            raw_event["relative_coord_x_destination"]
+            and raw_event["relative_coord_y_destination"]
+        ):
+            receiver_coordinates = Point(
+                x=raw_event["relative_coord_x_destination"],
+                y=raw_event["relative_coord_y_destination"],
+            )
+        else:
+            receiver_coordinates = None
         receiver_player = team.get_player_by_id(str(raw_event["recipient_id"]))
 
     event_qualifiers = _get_event_qualifiers(raw_event)
@@ -571,7 +589,12 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
             period_events = raw_data[period_events_title]
             for idx, raw_event in enumerate(period_events):
                 action_id = raw_event["action_id"]
-                if action_id not in ACTION_IDS_TO_IGNORE:
+                action_title = raw_event["action"]["title"].lower()
+                if (
+                    action_id not in ACTION_IDS_TO_IGNORE
+                    and raw_event["creator_team_id"]
+                    and raw_event["creator_id"]
+                ):
                     team = teams[str(raw_event["creator_team_id"])]
                     player = team.get_player_by_id(
                         str(raw_event["creator_id"])
@@ -580,6 +603,19 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
                         period for period in periods if period.id == period_id
                     )
 
+                    if (
+                        raw_event["relative_coord_x"]
+                        and raw_event["relative_coord_y"]
+                    ):
+                        coordinates = Point(
+                            x=raw_event["relative_coord_x"],
+                            y=raw_event["relative_coord_y"],
+                        )
+                    else:
+                        logger.debug(
+                            f"Not setting coordinates for event with missing coordinates: {raw_event}"
+                        )
+                        coordinates = None
                     generic_event_kwargs = dict(
                         period=period,
                         timestamp=raw_event["second"],
@@ -588,10 +624,7 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
                         event_id=str(raw_event["id"]),
                         team=team,
                         player=player,
-                        coordinates=Point(
-                            x=raw_event["relative_coord_x"],
-                            y=raw_event["relative_coord_y"],
-                        ),
+                        coordinates=coordinates,
                         raw_event=raw_event,
                     )
 
@@ -666,7 +699,6 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
                             **updated_generic_event_kwargs,
                         )
                     else:
-                        action_title = raw_event["action"]["title"].lower()
                         event = self.event_factory.build_generic(
                             **generic_event_kwargs,
                             result=None,
