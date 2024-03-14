@@ -43,6 +43,7 @@ from kloppy.domain import (
     Team,
     FormationType,
     Score,
+    BallState,
 )
 from kloppy.exceptions import DeserializationError
 from kloppy.utils import performance_logging
@@ -187,6 +188,8 @@ ACTION_IDS_TO_IGNORE = (
         BALL_OUT_OF_THE_FIELD,
         LOST_BALL,
         CREATED_OFFSIDE_TRAP,
+        BLOCKED_SHOT_BY_FIELD_PLAYER,
+        BALL_RECEIVING,
     ]
     + list(FORMATIONS.keys())
     + list(POSITIONS.keys())
@@ -198,10 +201,12 @@ PASS_IDS = [
     INACCURATE_PASS,
     ACCURATE_KEY_PASS,
     INACCURATE_KEY_PASS,
+    CROSS,
     ACCURATE_CROSS,
     INACCURATE_CROSS,
     PASS_INTO_DUEL_PLUS,
     PASS_INTO_DUEL_MINUS,
+    ASSIST,
 ]
 PASS_ACCURATE_IDS = [
     ACCURATE_PASS,
@@ -222,6 +227,7 @@ SHOT_IDS = [
     GOAL,
     SHOT_ON_TARGET,
     SHOT_INTO_THE_BAR_POST,
+    OWN_GOAL,
 ]
 TWO_PEOPLE_DUEL_IDS = [AERIAL_DUEL, DUEL]
 TAKE_ON_IDS = [
@@ -240,8 +246,9 @@ GOALKEEPER_IDS = [
     EFFECTIVE_SAVE,
     BOUNCING_SAVE_PLUS,
     BOUNCING_SAVE_MINUS,
-    PICKING_UP,
 ]
+CARD_IDS = [YELLOW_CARD, RED_CARD, YELLOW_RED_CARD]
+FOUL_IDS = [FOUL, OFFSIDE]
 
 BALL_OWNING_IDS = PASS_IDS + TAKE_ON_IDS + SHOT_IDS
 
@@ -287,31 +294,32 @@ def _get_event_qualifiers(raw_event: Dict) -> List[Qualifier]:
     return set_piece_qualifiers + body_part_qualifiers
 
 
-# def _parse_take_on(outcome: int) -> Dict:
-#     if outcome:
-#         result = TakeOnResult.COMPLETE
-#     else:
-#         result = TakeOnResult.INCOMPLETE
-#     return dict(result=result)
-#
-#
-# def _parse_clearance(raw_qualifiers: Dict[int, str]) -> Dict:
-#     return dict(qualifiers=_get_event_qualifiers(raw_qualifiers))
-#
-#
-# def _parse_card(raw_qualifiers: Dict[int, str]) -> Dict:
-#     qualifiers = _get_event_qualifiers(raw_qualifiers)
-#
-#     if EVENT_QUALIFIER_RED_CARD in qualifiers:
-#         card_type = CardType.RED
-#     elif EVENT_QUALIFIER_FIRST_YELLOW_CARD in qualifiers:
-#         card_type = CardType.FIRST_YELLOW
-#     elif EVENT_QUALIFIER_SECOND_YELLOW_CARD in qualifiers:
-#         card_type = CardType.SECOND_YELLOW
-#     else:
-#         card_type = None
-#
-#     return dict(result=None, qualifiers=qualifiers, card_type=card_type)
+def _parse_take_on(raw_event: Dict, action_id: int) -> Dict:
+    if action_id == DRIBBLE_PAST_OPPONENT_PLUS:
+        result = TakeOnResult.COMPLETE
+    elif action_id == DRIBBLE_PAST_OPPONENT_MINUS:
+        result = TakeOnResult.INCOMPLETE
+    else:
+        result = None
+
+    return dict(result=result, qualifiers=_get_event_qualifiers(raw_event))
+
+
+def _parse_card(raw_event: Dict, action_id: int) -> Dict:
+    qualifiers = _get_event_qualifiers(raw_event)
+
+    if action_id == RED_CARD:
+        card_type = CardType.RED
+    elif action_id == YELLOW_CARD:
+        card_type = CardType.FIRST_YELLOW
+    elif action_id == YELLOW_RED_CARD:
+        card_type = CardType.SECOND_YELLOW
+    else:
+        card_type = None
+
+    return dict(result=None, qualifiers=qualifiers, card_type=card_type)
+
+
 #
 #
 # def _parse_formation_change(raw_qualifiers: Dict[int, str]) -> Dict:
@@ -465,6 +473,7 @@ def _parse_pass(raw_event: Dict, action_id: int, team: Team) -> Dict:
     result = None
     receiver_coordinates = None
     receiver_player = None
+    # We could check whether next event is offside to set PassResult.OFFSIDE
     if action_id in PASS_INACCURATE_IDS:
         result = PassResult.INCOMPLETE
     elif action_id in PASS_ACCURATE_IDS:
@@ -673,6 +682,37 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
                         interception_kwargs = _parse_interception(raw_event)
                         event = self.event_factory.build_interception(
                             **interception_kwargs, **generic_event_kwargs
+                        )
+                    elif action_id in TAKE_ON_IDS:
+                        take_on_kwargs = _parse_take_on(raw_event, action_id)
+                        event = self.event_factory.build_take_on(
+                            **take_on_kwargs, **generic_event_kwargs
+                        )
+                    elif action_id == CLEARANCE:
+                        event = self.event_factory.build_clearance(
+                            **dict(
+                                qualifiers=_get_event_qualifiers(raw_event),
+                                result=None,
+                            ),
+                            **generic_event_kwargs,
+                        )
+                    elif action_id == PICKING_UP:
+                        event = self.event_factory.build_recovery(
+                            result=None,
+                            qualifiers=None,
+                            **generic_event_kwargs,
+                        )
+                    elif action_id in FOUL_IDS:
+                        event = self.event_factory.build_foul_committed(
+                            result=None,
+                            qualifiers=None,
+                            **generic_event_kwargs,
+                        )
+                    elif action_id in CARD_IDS:
+                        card_event_kwargs = _parse_card(raw_event, action_id)
+                        event = self.event_factory.build_card(
+                            **card_event_kwargs,
+                            **generic_event_kwargs,
                         )
                     elif action_id in GOALKEEPER_IDS:
                         goalkeeper_kwargs = _parse_goalkeeper_events(
