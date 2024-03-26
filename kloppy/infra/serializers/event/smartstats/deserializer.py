@@ -351,8 +351,8 @@ def _parse_shot(raw_event: Dict, action_id: int) -> Dict:
     ):
         result_coordinates = None
     else:
-        result_coordinates = Point(
-            x=raw_event["gate_coord_x"], y=raw_event["gate_coord_y"]
+        result_coordinates = Point3D(
+            x=105, y=raw_event["gate_coord_x"], z=raw_event["gate_coord_y"]
         )
 
     return dict(
