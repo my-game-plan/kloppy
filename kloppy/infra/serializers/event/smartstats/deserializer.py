@@ -352,7 +352,9 @@ def _parse_shot(raw_event: Dict, action_id: int) -> Dict:
         result_coordinates = None
     else:
         result_coordinates = Point3D(
-            x=105, y=raw_event["gate_coord_x"], z=raw_event["gate_coord_y"]
+            x=105,
+            y=34 + raw_event["gate_coord_x"],
+            z=raw_event["gate_coord_y"],
         )
 
     return dict(
@@ -656,7 +658,9 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
                         coordinates = None
                     generic_event_kwargs = dict(
                         period=period,
-                        timestamp=raw_event["second"],
+                        timestamp=raw_event["second"]
+                        if period.id == 1
+                        else raw_event["second"] - 45 * 60,
                         ball_owning_team=possession_team,
                         ball_state=None,
                         event_id=str(raw_event["id"]),
