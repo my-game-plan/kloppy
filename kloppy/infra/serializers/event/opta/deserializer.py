@@ -51,6 +51,9 @@ logger = logging.getLogger(__name__)
 EVENT_TYPE_START_PERIOD = 32
 EVENT_TYPE_END_PERIOD = 30
 EVENT_TYPE_DELETED_EVENT = 43
+EVENT_TYPE_START_DELAY = 27
+EVENT_TYPE_END_DELAY = 28
+EVENT_TYPE_OFFSIDE_PROVOKED = 55
 
 EVENT_TYPE_PASS = 1
 EVENT_TYPE_OFFSIDE_PASS = 2
@@ -104,6 +107,16 @@ BALL_OWNING_EVENTS = (
     EVENT_TYPE_RECOVERY,
     EVENT_TYPE_BALL_TOUCH,
 )
+DEAD_BALL_EVENTS = [
+    EVENT_TYPE_BALL_OUT,
+    EVENT_TYPE_CORNER_AWARDED,
+    EVENT_TYPE_SHOT_GOAL,
+    EVENT_TYPE_FOUL_COMMITTED,
+    EVENT_TYPE_CARD,
+    EVENT_TYPE_START_DELAY,
+    EVENT_TYPE_END_DELAY,
+    EVENT_TYPE_OFFSIDE_PROVOKED,
+]
 
 EVENT_QUALIFIER_GOAL_KICK = 124
 EVENT_QUALIFIER_FREE_KICK = 5
@@ -829,6 +842,7 @@ class OptaDeserializer(EventDataDeserializer[OptaInputs]):
                             **generic_event_kwargs,
                         )
                     elif type_id == EVENT_TYPE_OFFSIDE_PASS:
+                        generic_event_kwargs["ball_state"] = BallState.DEAD
                         pass_event_kwargs = _parse_offside_pass(raw_qualifiers)
                         event = self.event_factory.build_pass(
                             **pass_event_kwargs,
@@ -848,6 +862,7 @@ class OptaDeserializer(EventDataDeserializer[OptaInputs]):
                         EVENT_TYPE_SHOT_GOAL,
                     ):
                         if type_id == EVENT_TYPE_SHOT_GOAL:
+                            generic_event_kwargs["ball_state"] = BallState.DEAD
                             if 374 in raw_qualifiers.keys():
                                 generic_event_kwargs["timestamp"] = (
                                     _parse_f24_datetime(
@@ -916,6 +931,7 @@ class OptaDeserializer(EventDataDeserializer[OptaInputs]):
                     elif (type_id == EVENT_TYPE_FOUL_COMMITTED) and (
                         outcome == 0
                     ):
+                        generic_event_kwargs["ball_state"] = BallState.DEAD
                         event = self.event_factory.build_foul_committed(
                             result=None,
                             qualifiers=None,
@@ -947,6 +963,8 @@ class OptaDeserializer(EventDataDeserializer[OptaInputs]):
                             **generic_event_kwargs,
                         )
                     else:
+                        if type_id in DEAD_BALL_EVENTS:
+                            generic_event_kwargs["ball_state"] = BallState.DEAD
                         event = self.event_factory.build_generic(
                             **generic_event_kwargs,
                             result=None,
