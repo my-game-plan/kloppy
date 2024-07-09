@@ -901,12 +901,22 @@ class OptaDeserializer(EventDataDeserializer[OptaInputs]):
                             **generic_event_kwargs,
                         )
                     elif type_id in KEEPER_EVENTS:
-                        goalkeeper_event_kwargs = _parse_goalkeeper_events(
-                            raw_qualifiers, type_id
-                        )
-                        event = self.event_factory.build_goalkeeper_event(
-                            **goalkeeper_event_kwargs, **generic_event_kwargs
-                        )
+                        # Qualifier 94 means the "save" event is a shot block by a defender
+                        if 94 in raw_qualifiers:
+                            event = self.event_factory.build_generic(
+                                **generic_event_kwargs,
+                                result=None,
+                                qualifiers=None,
+                                event_name="block",
+                            )
+                        else:
+                            goalkeeper_event_kwargs = _parse_goalkeeper_events(
+                                raw_qualifiers, type_id
+                            )
+                            event = self.event_factory.build_goalkeeper_event(
+                                **goalkeeper_event_kwargs,
+                                **generic_event_kwargs,
+                            )
                     elif (type_id == EVENT_TYPE_BALL_TOUCH) & (outcome == 0):
                         event = self.event_factory.build_miscontrol(
                             result=None,
