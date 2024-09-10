@@ -113,7 +113,10 @@ def sportec_metadata_from_xml_elm(match_root) -> SportecMetadata:
     if not away_team:
         raise DeserializationError("Away team is missing from metadata")
 
-    (home_score, away_score,) = match_root.MatchInformation.General.attrib[
+    (
+        home_score,
+        away_score,
+    ) = match_root.MatchInformation.General.attrib[
         "Result"
     ].split(":")
     score = Score(home=int(home_score), away=int(away_score))
@@ -124,29 +127,43 @@ def sportec_metadata_from_xml_elm(match_root) -> SportecMetadata:
 
     # The periods can be rebuild from event data. Therefore, the periods attribute
     # from the metadata can be ignored. It is required for tracking data.
-    other_game_information = (
-        match_root.MatchInformation.OtherGameInformation.attrib
-    )
+    if hasattr(match_root.MatchInformation, "OtherGameInformation"):
+        other_game_information = (
+            match_root.MatchInformation.OtherGameInformation.attrib
+        )
+        total_time_first_half = float(
+            other_game_information["TotalTimeFirstHalf"]
+        )
+        total_time_second_half = float(
+            other_game_information["TotalTimeSecondHalf"]
+        )
+        first_period_end_timestamp = timedelta(
+            seconds=SPORTEC_FIRST_HALF_STARTING_FRAME_ID / SPORTEC_FPS
+            + total_time_first_half / 1000
+        )
+        second_period_end_timestamp = timedelta(
+            seconds=SPORTEC_SECOND_HALF_STARTING_FRAME_ID / SPORTEC_FPS
+            + total_time_second_half / 1000
+        )
+    else:
+        other_game_information = ""
+        first_period_end_timestamp = None
+        second_period_end_timestamp = None
+
     periods = [
         Period(
             id=1,
             start_timestamp=timedelta(
                 seconds=SPORTEC_FIRST_HALF_STARTING_FRAME_ID / SPORTEC_FPS
             ),
-            end_timestamp=timedelta(
-                seconds=SPORTEC_FIRST_HALF_STARTING_FRAME_ID / SPORTEC_FPS
-                + float(other_game_information["TotalTimeFirstHalf"]) / 1000
-            ),
+            end_timestamp=first_period_end_timestamp,
         ),
         Period(
             id=2,
             start_timestamp=timedelta(
                 seconds=SPORTEC_SECOND_HALF_STARTING_FRAME_ID / SPORTEC_FPS
             ),
-            end_timestamp=timedelta(
-                seconds=SPORTEC_SECOND_HALF_STARTING_FRAME_ID / SPORTEC_FPS
-                + float(other_game_information["TotalTimeSecondHalf"]) / 1000
-            ),
+            end_timestamp=second_period_end_timestamp,
         ),
     ]
 
