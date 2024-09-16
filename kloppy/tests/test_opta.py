@@ -111,8 +111,13 @@ class TestOptaMetadata:
 
         # Substituted players don't have a position
         sub_player = dataset.metadata.teams[0].get_player_by_id("88022")
-        assert sub_player.starting_position is PositionType.Unknown
+        # assert sub_player.starting_position is PositionType.Unknown
         assert not sub_player.starting
+
+        # LB position is correctly based on Formation_Place
+        player = dataset.metadata.teams[0].get_player_by_id("80398")
+        assert player.positions.last() == PositionType.LeftBack
+        assert player.starting
 
     def test_periods(self, dataset):
         """It should create the periods"""

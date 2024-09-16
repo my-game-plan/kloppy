@@ -19,6 +19,7 @@ position_types_mapping: Dict[str, PositionType] = {
     "Goalkeeper": PositionType.Goalkeeper,
     "Defender": PositionType.Defender,
     "Midfielder": PositionType.Midfielder,
+    "Forward": PositionType.Attacker,
     "Striker": PositionType.Attacker,
     "Substitute": PositionType.Unknown,
 }
