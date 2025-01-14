@@ -1162,7 +1162,7 @@ class EventDataset(Dataset[Event]):
 
         return aggregator.aggregate(self)
 
-    def add_synthetic_event(self, event_type_: EventType):
+    def add_synthetic_event(self, event_type_: EventType, event_factory_=None):
         """
         Adds synthetic events of the specified type. This method analyses the stream of events and inserts
         synthetic events at the appropriate points within the dataset.
@@ -1170,6 +1170,7 @@ class EventDataset(Dataset[Event]):
         Args:
             event_type_ (EventType): The type of event to generate. (See [`EventType`][kloppy.domain.models.event.EventType])
             Supported event types are currently only [EventType.CARRY]
+            event_factory_ (EventFactory): Optional event factory to generate the events
 
         Raises:
             KloppyError: If the event type is not supported or invalid.
@@ -1179,7 +1180,7 @@ class EventDataset(Dataset[Event]):
                 SyntheticCarryGenerator,
             )
 
-            synthetic_event_generator = SyntheticCarryGenerator()
+            synthetic_event_generator = SyntheticCarryGenerator(event_factory_)
         else:
             raise KloppyError(
                 f"Not possible to generate synthetic {event_type_}"
