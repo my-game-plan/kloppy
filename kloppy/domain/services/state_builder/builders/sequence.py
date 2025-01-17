@@ -32,7 +32,7 @@ class SequenceStateBuilder(StateBuilder):
         return Sequence(sequence_id=0, team=None)
 
     def reduce_before(self, state: Sequence, event: Event) -> Sequence:
-        if isinstance(event, OPEN_SEQUENCE) and (
+        if isinstance(event, OPEN_SEQUENCE) and 'carry-' not in event.event_id and (
             state.team != event.team
             or event.get_qualifier_value(SetPieceQualifier)
         ):
