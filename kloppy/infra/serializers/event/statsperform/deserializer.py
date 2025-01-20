@@ -33,7 +33,7 @@ from kloppy.domain import (
     PassQualifier,
     GoalkeeperQualifier,
     GoalkeeperActionType,
-    CounterAttackQualifier,
+    CounterAttackQualifier, Period,
 )
 from kloppy.exceptions import DeserializationError
 from kloppy.infra.serializers.event.deserializer import EventDataDeserializer
@@ -248,7 +248,8 @@ def _parse_pass(
     raw_event: OptaEvent,
     next_event: OptaEvent,
     next_next_event: OptaEvent,
-    team: Team,) -> Dict:
+    team: Team,
+    period: Period) -> Dict:
     result = (
         PassResult.COMPLETE if raw_event.outcome else PassResult.INCOMPLETE
     )
@@ -280,7 +281,8 @@ def _parse_pass(
         and ball_receipt_event.player_id is not None
     ):
         receiver_player = team.get_player_by_id(ball_receipt_event.player_id)
-        receive_timestamp = ball_receipt_event.timestamp
+        receive_timestamp = ball_receipt_event.timestamp - period.start_timestamp
+
     else:
         receiver_player = None
         receive_timestamp = None
@@ -751,7 +753,7 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
 
                     if raw_event.type_id == EVENT_TYPE_PASS:
                         pass_event_kwargs = _parse_pass(
-                            raw_event, next_event, next_next_event, team)
+                            raw_event, next_event, next_next_event, team, period)
                         event = self.event_factory.build_pass(
                             **pass_event_kwargs,
                             **generic_event_kwargs,
