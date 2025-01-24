@@ -1,4 +1,6 @@
+import math
 import sys
+import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
@@ -41,7 +43,7 @@ from .pitch import (
     OptaPitchDimensions,
     PitchDimensions,
     Unit,
-    WyscoutPitchDimensions,
+    WyscoutPitchDimensions, Point, DEFAULT_PITCH_LENGTH, DEFAULT_PITCH_WIDTH,
 )
 from .time import Period, Time, TimeContainer
 
@@ -1415,7 +1417,50 @@ class Dataset(ABC, Generic[T]):
                     " install it using: pip install pandas"
                 )
 
-            return DataFrame.from_dict(self.to_dict(*columns, **named_columns))
+            pitch = self.metadata.pitch_dimensions
+            df = DataFrame.from_dict(self.to_dict(*columns, **named_columns))
+            df["distance"] = df[
+                [
+                    "coordinates_x",
+                    "coordinates_y",
+                    "end_coordinates_x",
+                    "end_coordinates_y",
+                ]
+            ].apply(
+                lambda row: pitch.distance_between(
+                    Point(row["coordinates_x"], row["coordinates_y"]),
+                    Point(row["end_coordinates_x"], row["end_coordinates_y"]),
+                    Unit.METERS,
+                ),
+                axis=1,
+            )
+            if self.metadata.orientation == Orientation.ACTION_EXECUTING_TEAM:
+                if pitch.pitch_length is None or pitch.pitch_width is None:
+                    warnings.warn(
+                        "The pitch length and width are not specified. "
+                        "Assuming a standard pitch size of 105x68 meters. "
+                        "This may lead to incorrect results.",
+                        stacklevel=2,
+                    )
+                    pitch_length = DEFAULT_PITCH_LENGTH
+                    pitch_width = DEFAULT_PITCH_WIDTH
+                else:
+                    pitch_length = pitch.pitch_length
+                    pitch_width = pitch.pitch_width
+                # Calculate in metric system
+                df["angle_to_goal"] = df[
+                    [
+                        "coordinates_x",
+                        "coordinates_y",
+                    ]
+                ].apply(
+                    lambda row: math.atan2(
+                        pitch_length - pitch.to_metric_base(Point(row["coordinates_x"], 0), pitch_length, pitch_width).x,
+                        pitch_width / 2 - pitch.to_metric_base(Point(0, row["coordinates_y"]), pitch_length, pitch_width).y
+                    ) / math.pi * 180,  # Convert to degrees
+                    axis=1,
+                )
+            return df
         elif engine == "polars":
             try:
                 from polars import from_dict
