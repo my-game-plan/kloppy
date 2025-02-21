@@ -41,10 +41,9 @@ class TRACABDatDeserializer(TrackingDataDeserializer[TRACABInputs]):
         limit: Optional[int] = None,
         sample_rate: Optional[float] = None,
         coordinate_system: Optional[Union[str, Provider]] = None,
-        fps_output: Optional[float] = None,
         only_alive: Optional[bool] = True,
     ):
-        super().__init__(limit, sample_rate, coordinate_system, fps_output)
+        super().__init__(limit, sample_rate, coordinate_system)
         self.only_alive = only_alive
 
     @property
