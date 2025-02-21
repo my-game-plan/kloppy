@@ -1,10 +1,11 @@
 import sys
+from collections import defaultdict
 
 import pytest
 from pandas import DataFrame
 from pandas.testing import assert_frame_equal
 
-from kloppy import opta, statsbomb, tracab
+from kloppy import opta, statsbomb, tracab, sportec
 from kloppy.config import config_context
 from kloppy.domain import (
     AttackingDirection,
@@ -28,7 +29,8 @@ from kloppy.domain.services.frame_factory import create_frame
 
 
 class TestHelpers:
-    def _get_tracking_dataset(self):
+    @pytest.fixture
+    def tracking_data(self):
         home_team = Team(team_id="home", name="home", ground=Ground.HOME)
         away_team = Team(team_id="away", name="away", ground=Ground.AWAY)
         teams = [home_team, away_team]
@@ -65,7 +67,7 @@ class TestHelpers:
             game_id="2374516",
         )
 
-        tracking_data = TrackingDataset(
+        tracking_dataset = TrackingDataset(
             metadata=metadata,
             records=[
                 create_frame(
@@ -99,11 +101,9 @@ class TestHelpers:
                 ),
             ],
         )
-        return tracking_data
+        return tracking_dataset
 
-    def test_transform(self):
-        tracking_data = self._get_tracking_dataset()
-
+    def test_transform(self, tracking_data):
         # orientation change AND dimension scale
         transformed_dataset = tracking_data.transform(
             to_orientation="AWAY_HOME",
@@ -135,9 +135,7 @@ class TestHelpers:
             )
         )
 
-    def test_transform_to_pitch_dimensions(self):
-        tracking_data = self._get_tracking_dataset()
-
+    def test_transform_to_pitch_dimensions(self, tracking_data):
         transformed_dataset = tracking_data.transform(
             to_pitch_dimensions=NormalizedPitchDimensions(
                 x_dim=Dimension(min=0, max=1),
@@ -163,7 +161,7 @@ class TestHelpers:
             )
         )
 
-    def test_transform_to_orientation(self):
+    def test_transform_to_orientation(self, tracking_data):
         to_pitch_dimensions = NormalizedPitchDimensions(
             x_dim=Dimension(min=0, max=1),
             y_dim=Dimension(min=0, max=1),
@@ -172,7 +170,7 @@ class TestHelpers:
         )
         # Create a dataset with the KLOPPY pitch dimensions
         # and HOME_AWAY orientation
-        original = self._get_tracking_dataset().transform(
+        original = tracking_data.transform(
             to_pitch_dimensions=to_pitch_dimensions
         )
         assert original.metadata.orientation == Orientation.HOME_AWAY
@@ -293,6 +291,115 @@ class TestHelpers:
             == transformerd_coordinate_system.pitch_dimensions
         )
 
+    def test_change_fps_output(self, base_dir):
+        raw_data = base_dir / "files/sportec_positional.xml"
+        meta_data = base_dir / "files/sportec_meta.xml"
+        dataset = sportec.load_tracking(
+            raw_data=raw_data, meta_data=meta_data, coordinates="sportec"
+        )
+
+        input_fps = dataset.metadata.frame_rate
+        nbr_of_org_frames = len(dataset.frames)
+
+        # Define target FPS
+        fps_output = 10
+
+        # Transform the dataset
+        transformed_dataset = dataset.transform(fps_output=fps_output)
+
+        # Assertions to validate the transformation
+        assert (
+            transformed_dataset.metadata.frame_rate == fps_output
+        ), f"Expected frame rate {fps_output}, but got {transformed_dataset.metadata.frame_rate}"
+
+        # Calculate the expected number of frames based on the original duration
+        duration_seconds = nbr_of_org_frames / input_fps
+        expected_frames = int(duration_seconds * fps_output) + 1
+
+        assert (
+            len(transformed_dataset.frames) == expected_frames
+        ), f"Expected {expected_frames} frames, but got {len(transformed_dataset.frames)}"
+
+        # Verify that frame timestamps align with the new FPS within the same period
+        for i, frame in enumerate(transformed_dataset.frames[:-1]):
+            next_frame = transformed_dataset.frames[i + 1]
+
+            if frame.period == next_frame.period:
+                delta = (
+                    next_frame.timestamp - frame.timestamp
+                ).total_seconds()
+                assert abs(delta - (1 / fps_output)) < 1e-6, (
+                    f"Unexpected time delta {delta} between frames {i} and {i + 1}"
+                    f" for fps_output {fps_output} in period {frame.period}"
+                )
+
+                # Verify linear interpolation of ball coordinates
+                interpolated_x = frame.ball_coordinates.x + delta * (
+                    (next_frame.ball_coordinates.x - frame.ball_coordinates.x)
+                    / delta
+                )
+                interpolated_y = frame.ball_coordinates.y + delta * (
+                    (next_frame.ball_coordinates.y - frame.ball_coordinates.y)
+                    / delta
+                )
+                interpolated_z = frame.ball_coordinates.z + delta * (
+                    (next_frame.ball_coordinates.z - frame.ball_coordinates.z)
+                    / delta
+                )
+
+                assert (
+                    abs(interpolated_x - next_frame.ball_coordinates.x) < 1e-6
+                ), f"Ball X coordinate not correctly interpolated between frames {i} and {i + 1}"
+                assert (
+                    abs(interpolated_y - next_frame.ball_coordinates.y) < 1e-6
+                ), f"Ball Y coordinate not correctly interpolated between frames {i} and {i + 1}"
+                assert (
+                    abs(interpolated_z - next_frame.ball_coordinates.z) < 1e-6
+                ), f"Ball Z coordinate not correctly interpolated between frames {i} and {i + 1}"
+
+                # Verify linear interpolation of player coordinates
+                for player_id, player_data in frame.players_data.items():
+                    if player_id in next_frame.players_data:
+                        player_data_next = next_frame.players_data[player_id]
+
+                        interpolated_player_x = (
+                            player_data.coordinates.x
+                            + delta
+                            * (
+                                (
+                                    player_data_next.coordinates.x
+                                    - player_data.coordinates.x
+                                )
+                                / delta
+                            )
+                        )
+                        interpolated_player_y = (
+                            player_data.coordinates.y
+                            + delta
+                            * (
+                                (
+                                    player_data_next.coordinates.y
+                                    - player_data.coordinates.y
+                                )
+                                / delta
+                            )
+                        )
+
+                        assert (
+                            abs(
+                                interpolated_player_x
+                                - player_data_next.coordinates.x
+                            )
+                            < 1e-6
+                        ), f"Player {player_id} X coordinate not correctly interpolated between frames {i} and {i + 1}"
+                        assert (
+                            abs(
+                                interpolated_player_y
+                                - player_data_next.coordinates.y
+                            )
+                            < 1e-6
+                        ), f"Player {player_id} Y coordinate not correctly interpolated between frames {i} and {i + 1}"
+
     def test_transform_event_data(self, base_dir):
         """Make sure event data that's in ACTION_EXECUTING orientation is
         transformed correctly"""
@@ -370,9 +477,7 @@ class TestHelpers:
         assert coordinates.x == 1 - coordinates_transformed.x
         assert coordinates.y == 1 - coordinates_transformed.y
 
-    def test_to_pandas(self):
-        tracking_data = self._get_tracking_dataset()
-
+    def test_to_pandas(self, tracking_data):
         data_frame = tracking_data.to_df(engine="pandas")
 
         expected_data_frame = DataFrame.from_dict(
@@ -422,9 +527,7 @@ class TestHelpers:
             0.70945, 1e-4
         )
 
-    def test_to_pandas_additional_columns(self):
-        tracking_data = self._get_tracking_dataset()
-
+    def test_to_pandas_additional_columns(self, tracking_data):
         data_frame = tracking_data.to_df(
             "*",  # Get all default columns
             match="test",
@@ -471,20 +574,18 @@ class TestHelpers:
         c = df.select(pl.col("event_id").count())[0, 0]
         assert c == 4061
 
-    def test_tracking_dataset_to_polars(self):
+    def test_tracking_dataset_to_polars(self, tracking_data):
         """
         Make sure a tracking dataset can be exported as a Polars DataFrame
         """
-        dataset = self._get_tracking_dataset()
-
-        df = dataset.to_df(engine="polars")
+        df = tracking_data.to_df(engine="polars")
 
         import polars as pl
 
         c = df.select(pl.col("frame_id").count())[0, 0]
         assert c == 2
 
-    def test_to_df_config(self):
+    def test_to_df_config(self, tracking_data):
         """
         Make sure to_df get engine from config. By default, pandas, otherwise polars
         """
@@ -492,16 +593,15 @@ class TestHelpers:
         import pandas as pd
         import polars as pl
 
-        dataset = self._get_tracking_dataset()
-        df = dataset.to_df()
+        df = tracking_data.to_df()
         assert isinstance(df, pd.DataFrame)
 
         with config_context("dataframe.engine", "polars"):
-            df = dataset.to_df()
+            df = tracking_data.to_df()
             assert isinstance(df, pl.DataFrame)
 
     @pytest.mark.skipif(sys.version_info < (3, 8), reason="requires python3.8")
-    def test_to_df_pyarrow(self):
+    def test_to_df_pyarrow(self, tracking_data):
         """
         Make sure we can export to pandas[pyarrow]. Only works for Python > 3.7.
 
@@ -510,7 +610,6 @@ class TestHelpers:
         """
         import pandas as pd
 
-        dataset = self._get_tracking_dataset()
-        df = dataset.to_df(engine="pandas[pyarrow]")
+        df = tracking_data.to_df(engine="pandas[pyarrow]")
         assert isinstance(df, pd.DataFrame)
         assert isinstance(df.dtypes["ball_x"], pd.ArrowDtype)
