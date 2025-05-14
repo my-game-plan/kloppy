@@ -1,6 +1,6 @@
 import bisect
 from datetime import timedelta
-from typing import List, Dict
+from typing import List, Dict, Tuple
 import re
 
 from kloppy.domain import (
@@ -31,7 +31,7 @@ def get_period_by_id(period_id: int, periods: List[Period]) -> Period:
     raise DeserializationError(f"Unknown period_id {period_id}")
 
 
-def parse_timestamp(ts_str: str) -> tuple[timedelta, int]:
+def parse_timestamp(ts_str: str) -> Tuple[timedelta, int]:
     """
     Parse a football clock timestamp into:
       - elapsed time (timedelta)
