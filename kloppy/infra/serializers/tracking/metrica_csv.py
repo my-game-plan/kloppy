@@ -1,13 +1,13 @@
 import logging
 import warnings
 from collections import namedtuple
-from typing import Tuple, Dict, Iterator, IO, NamedTuple
+from datetime import timedelta
+from typing import Iterator, IO, NamedTuple
 
 from kloppy.domain import (
     attacking_direction_from_frame,
     TrackingDataset,
     AttackingDirection,
-    Frame,
     Point,
     Period,
     Orientation,
@@ -18,11 +18,13 @@ from kloppy.domain import (
     Ground,
     Player,
     PlayerData,
+    PositionType,
 )
+from kloppy.domain.services.frame_factory import create_frame
 from kloppy.infra.serializers.tracking.deserializer import (
     TrackingDataDeserializer,
 )
-from kloppy.utils import Readable, performance_logging
+from kloppy.utils import performance_logging
 
 
 logger = logging.getLogger(__name__)
@@ -76,6 +78,7 @@ class MetricaCSVTrackingDataDeserializer(
                         player_id=f"{team.ground}_{jersey_number}",
                         jersey_no=int(jersey_number),
                         team=team,
+                        starting_position=PositionType.Unknown,
                     )
                     for jersey_number in player_jersey_numbers
                 ]
@@ -90,12 +93,16 @@ class MetricaCSVTrackingDataDeserializer(
                 if period is None or period.id != period_id:
                     period = Period(
                         id=period_id,
-                        start_timestamp=frame_id / frame_rate,
-                        end_timestamp=frame_id / frame_rate,
+                        start_timestamp=timedelta(
+                            seconds=(frame_id - 1) / frame_rate
+                        ),
+                        end_timestamp=timedelta(seconds=frame_id / frame_rate),
                     )
                 else:
                     # consider not update this every frame for performance reasons
-                    period.end_timestamp = frame_id / frame_rate
+                    period.end_timestamp = timedelta(
+                        seconds=frame_id / frame_rate
+                    )
 
                 if frame_idx % frame_sample == 0:
                     yield self.__PartialFrame(
@@ -112,11 +119,13 @@ class MetricaCSVTrackingDataDeserializer(
                             for i, player in enumerate(players)
                             if columns[3 + i * 2] != "NaN"
                         },
-                        ball_coordinates=Point(
-                            x=float(columns[-2]), y=1 - float(columns[-1])
-                        )
-                        if columns[-2] != "NaN"
-                        else None,
+                        ball_coordinates=(
+                            Point(
+                                x=float(columns[-2]), y=1 - float(columns[-1])
+                            )
+                            if columns[-2] != "NaN"
+                            else None
+                        ),
                     )
                 frame_idx += 1
 
@@ -146,14 +155,10 @@ class MetricaCSVTrackingDataDeserializer(
     def deserialize(
         self, inputs: MetricaCSVTrackingDataInputs
     ) -> TrackingDataset:
-        # TODO: consider passing this in __init__
-        length = 105
-        width = 68
-
         # consider reading this from data
         frame_rate = 25
 
-        transformer = self.get_transformer(length=length, width=width)
+        transformer = self.get_transformer()
 
         with performance_logging("prepare", logger=logger):
             home_iterator = self.__create_iterator(
@@ -187,9 +192,10 @@ class MetricaCSVTrackingDataDeserializer(
                     **away_partial_frame.players_data,
                 }
 
-                frame = Frame(
+                frame = create_frame(
                     frame_id=frame_id,
-                    timestamp=frame_id / frame_rate - period.start_timestamp,
+                    timestamp=timedelta(seconds=frame_id / frame_rate)
+                    - period.start_timestamp,
                     ball_coordinates=home_partial_frame.ball_coordinates,
                     players_data=players_data,
                     period=period,
@@ -209,7 +215,7 @@ class MetricaCSVTrackingDataDeserializer(
                     teams = [home_partial_frame.team, away_partial_frame.team]
 
                 n += 1
-                if self.limit and n >= self.limit:
+                if self.limit and n + 1 >= (self.limit / self.sample_rate):
                     break
 
         try:

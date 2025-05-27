@@ -1,6 +1,8 @@
 import json
 import logging
-from typing import Dict, List, Tuple, NamedTuple, IO, Optional
+from dataclasses import replace
+from datetime import timedelta
+from typing import Dict, List, NamedTuple, IO, Optional
 
 from kloppy.domain import (
     BodyPart,
@@ -175,13 +177,11 @@ def _parse_shot(raw_event: Dict, next_event: Dict) -> Dict:
         result = ShotResult.GOAL
     elif _has_tag(raw_event, 2101):
         result = ShotResult.BLOCKED
-    elif any((_has_tag(raw_event, tag) for tag in wyscout_tags.SHOT_POST)):
+    elif any(_has_tag(raw_event, tag) for tag in wyscout_tags.SHOT_POST):
         result = ShotResult.POST
-    elif any(
-        (_has_tag(raw_event, tag) for tag in wyscout_tags.SHOT_OFF_TARGET)
-    ):
+    elif any(_has_tag(raw_event, tag) for tag in wyscout_tags.SHOT_OFF_TARGET):
         result = ShotResult.OFF_TARGET
-    elif any((_has_tag(raw_event, tag) for tag in wyscout_tags.SHOT_ON_GOAL)):
+    elif any(_has_tag(raw_event, tag) for tag in wyscout_tags.SHOT_ON_GOAL):
         result = ShotResult.SAVED
 
     if next_event["eventId"] == wyscout_events.SAVE.EVENT:
@@ -474,7 +474,7 @@ class WyscoutDeserializerV2(EventDataDeserializer[WyscoutInputs]):
         return Provider.WYSCOUT
 
     def deserialize(self, inputs: WyscoutInputs) -> EventDataset:
-        transformer = self.get_transformer(length=100, width=100)
+        transformer = self.get_transformer()
 
         with performance_logging("load data", logger=logger):
             raw_events = json.load(inputs.event_data)
@@ -491,19 +491,24 @@ class WyscoutDeserializerV2(EventDataDeserializer[WyscoutInputs]):
             home_team = _parse_team(raw_events, home_team_id, Ground.HOME)
             away_team = _parse_team(raw_events, away_team_id, Ground.AWAY)
             teams = {home_team_id: home_team, away_team_id: away_team}
-            players = dict(
-                [
-                    (wyId, _players_to_dict(team.players))
-                    for wyId, team in teams.items()
-                ]
-            )
+            players = {
+                wyId: _players_to_dict(team.players)
+                for wyId, team in teams.items()
+            }
+            game_id = raw_events["events"][0].get("matchId", None)
+            if game_id:
+                game_id = str(game_id)
 
             events = []
 
             for idx, raw_event in enumerate(raw_events["events"]):
                 next_event = None
+                next_period_id = None
                 if (idx + 1) < len(raw_events["events"]):
                     next_event = raw_events["events"][idx + 1]
+                    next_period_id = int(
+                        next_event["matchPeriod"].replace("H", "")
+                    )
 
                 team_id = str(raw_event["teamId"])
                 player_id = str(raw_event["playerId"])
@@ -513,9 +518,19 @@ class WyscoutDeserializerV2(EventDataDeserializer[WyscoutInputs]):
                     periods.append(
                         Period(
                             id=period_id,
-                            start_timestamp=0,
-                            end_timestamp=0,
+                            start_timestamp=(
+                                timedelta(seconds=0)
+                                if len(periods) == 0
+                                else periods[-1].end_timestamp
+                            ),
+                            end_timestamp=None,
                         )
+                    )
+                if next_period_id != period_id:
+                    periods[-1] = replace(
+                        periods[-1],
+                        end_timestamp=periods[-1].start_timestamp
+                        + timedelta(seconds=raw_event["eventSec"]),
                     )
 
                 generic_event_args = {
@@ -526,13 +541,15 @@ class WyscoutDeserializerV2(EventDataDeserializer[WyscoutInputs]):
                         y=float(raw_event["positions"][0]["y"]),
                     ),
                     "team": teams[team_id],
-                    "player": players[team_id][player_id]
-                    if player_id != INVALID_PLAYER
-                    else None,
+                    "player": (
+                        players[team_id][player_id]
+                        if player_id != INVALID_PLAYER
+                        else None
+                    ),
                     "ball_owning_team": None,
                     "ball_state": None,
                     "period": periods[-1],
-                    "timestamp": raw_event["eventSec"],
+                    "timestamp": timedelta(seconds=raw_event["eventSec"]),
                 }
 
                 new_events = []
@@ -555,7 +572,7 @@ class WyscoutDeserializerV2(EventDataDeserializer[WyscoutInputs]):
                     )
                     new_events.append(foul_event)
                     if any(
-                        (_has_tag(raw_event, tag) for tag in wyscout_tags.CARD)
+                        _has_tag(raw_event, tag) for tag in wyscout_tags.CARD
                     ):
                         card_event_args = _parse_card(raw_event)
                         card_event_id = (
@@ -716,6 +733,7 @@ class WyscoutDeserializerV2(EventDataDeserializer[WyscoutInputs]):
             flags=None,
             provider=Provider.WYSCOUT,
             coordinate_system=transformer.get_to_coordinate_system(),
+            game_id=game_id,
         )
 
         return EventDataset(metadata=metadata, records=events)

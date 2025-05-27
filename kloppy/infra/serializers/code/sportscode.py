@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from typing import Union, IO, NamedTuple
 
 from lxml import objectify, etree
@@ -50,19 +51,24 @@ class SportsCodeDeserializer(CodeDataDeserializer[SportsCodeInputs]):
         all_instances = objectify.fromstring(inputs.data.read())
 
         codes = []
-        period = Period(id=1, start_timestamp=0, end_timestamp=0)
+        period = Period(
+            id=1,
+            start_timestamp=timedelta(seconds=0),
+            end_timestamp=timedelta(seconds=0),
+        )
         for instance in all_instances.ALL_INSTANCES.iterchildren():
-            end_timestamp = float(instance.end)
+            end_timestamp = timedelta(seconds=float(instance.end))
 
             code = Code(
                 period=period,
                 code_id=str(instance.ID),
                 code=str(instance.code),
-                timestamp=float(instance.start),
+                timestamp=timedelta(seconds=float(instance.start)),
                 end_timestamp=end_timestamp,
                 labels=parse_labels(instance),
                 ball_state=None,
                 ball_owning_team=None,
+                statistics=[],
             )
             period.end_timestamp = end_timestamp
             codes.append(code)
@@ -88,7 +94,7 @@ class SportsCodeSerializer(CodeDataSerializer):
         root = etree.Element("file")
         all_instances = etree.SubElement(root, "ALL_INSTANCES")
         for i, code in enumerate(dataset.codes):
-            relative_period_start = 0
+            relative_period_start = timedelta(seconds=0)
             for period in dataset.metadata.periods:
                 if period == code.period:
                     break
@@ -100,10 +106,16 @@ class SportsCodeSerializer(CodeDataSerializer):
             id_.text = code.code_id or str(i + 1)
 
             start = etree.SubElement(instance, "start")
-            start.text = str(relative_period_start + code.start_timestamp)
+            start.text = str(
+                relative_period_start.total_seconds()
+                + code.start_timestamp.total_seconds()
+            )
 
             end = etree.SubElement(instance, "end")
-            end.text = str(relative_period_start + code.end_timestamp)
+            end.text = str(
+                relative_period_start.total_seconds()
+                + code.end_timestamp.total_seconds()
+            )
 
             code_ = etree.SubElement(instance, "code")
             code_.text = code.code

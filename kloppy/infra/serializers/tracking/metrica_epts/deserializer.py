@@ -11,6 +11,7 @@ from kloppy.domain import (
     PlayerData,
     DatasetTransformer,
 )
+from kloppy.domain.services.frame_factory import create_frame
 from kloppy.utils import performance_logging
 
 from .metadata import load_metadata, EPTSMetadata
@@ -58,22 +59,28 @@ class MetricaEPTSTrackingDataDeserializer(
                     other_data.update({sensor.sensor_id: player_sensor_val})
 
                 players_data[player] = PlayerData(
-                    coordinates=Point(
-                        x=row[f"player_{player.player_id}_x"],
-                        y=row[f"player_{player.player_id}_y"],
-                    )
-                    if f"player_{player.player_id}_x" in row
-                    else None,
-                    speed=row[f"player_{player.player_id}_s"]
-                    if f"player_{player.player_id}_s" in row
-                    else None,
-                    distance=row[f"player_{player.player_id}_d"]
-                    if f"player_{player.player_id}_d" in row
-                    else None,
+                    coordinates=(
+                        Point(
+                            x=row[f"player_{player.player_id}_x"],
+                            y=row[f"player_{player.player_id}_y"],
+                        )
+                        if f"player_{player.player_id}_x" in row
+                        else None
+                    ),
+                    speed=(
+                        row[f"player_{player.player_id}_s"]
+                        if f"player_{player.player_id}_s" in row
+                        else None
+                    ),
+                    distance=(
+                        row[f"player_{player.player_id}_d"]
+                        if f"player_{player.player_id}_d" in row
+                        else None
+                    ),
                     other_data=other_data,
                 )
 
-        frame = Frame(
+        frame = create_frame(
             frame_id=row["frame_id"],
             timestamp=timestamp,
             ball_owning_team=None,
@@ -99,9 +106,8 @@ class MetricaEPTSTrackingDataDeserializer(
 
             if metadata.provider and metadata.pitch_dimensions:
                 transformer = self.get_transformer(
-                    length=metadata.pitch_dimensions.length,
-                    width=metadata.pitch_dimensions.width,
-                    provider=metadata.coordinate_system.provider,
+                    pitch_length=metadata.pitch_dimensions.pitch_length,
+                    pitch_width=metadata.pitch_dimensions.pitch_width,
                 )
             else:
                 transformer = None

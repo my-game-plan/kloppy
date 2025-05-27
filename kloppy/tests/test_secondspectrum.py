@@ -1,10 +1,9 @@
-import logging
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from kloppy.domain import (
-    AttackingDirection,
     Orientation,
     Provider,
     Point,
@@ -28,6 +27,31 @@ class TestSecondSpectrumTracking:
     def additional_meta_data(self, base_dir) -> str:
         return base_dir / "files/second_spectrum_fake_metadata.json"
 
+    def test_correct_deserialization_limit_sample(
+        self, meta_data: Path, raw_data: Path, additional_meta_data: Path
+    ):
+
+        dataset = secondspectrum.load(
+            meta_data=meta_data,
+            raw_data=raw_data,
+            additional_meta_data=additional_meta_data,
+            only_alive=False,
+            coordinates="secondspectrum",
+            limit=100,
+            sample_rate=(1 / 2),
+        )
+        assert len(dataset.records) == 100
+
+        dataset = secondspectrum.load(
+            meta_data=meta_data,
+            raw_data=raw_data,
+            additional_meta_data=additional_meta_data,
+            only_alive=False,
+            coordinates="secondspectrum",
+            limit=100,
+        )
+        assert len(dataset.records) == 100
+
     def test_correct_deserialization(
         self, meta_data: Path, raw_data: Path, additional_meta_data: Path
     ):
@@ -48,22 +72,37 @@ class TestSecondSpectrumTracking:
 
         # Check the Periods
         assert dataset.metadata.periods[0].id == 1
-        assert dataset.metadata.periods[0].start_timestamp == 0
-        assert dataset.metadata.periods[0].end_timestamp == 2982240
+        assert dataset.metadata.periods[0].start_timestamp == timedelta(
+            seconds=0
+        )
+        assert dataset.metadata.periods[0].end_timestamp == timedelta(
+            seconds=2982240 / 25
+        )
 
         assert dataset.metadata.periods[1].id == 2
-        assert dataset.metadata.periods[1].start_timestamp == 3907360
-        assert dataset.metadata.periods[1].end_timestamp == 6927840
+        assert dataset.metadata.periods[1].start_timestamp == timedelta(
+            seconds=3907360 / 25
+        )
+        assert dataset.metadata.periods[1].end_timestamp == timedelta(
+            seconds=6927840 / 25
+        )
 
         # Check some timestamps
-        assert dataset.records[0].timestamp == 0  # First frame
-        assert dataset.records[20].timestamp == 320.0  # Later frame
+        assert dataset.records[0].timestamp == timedelta(
+            seconds=0
+        )  # First frame
+        assert dataset.records[20].timestamp == timedelta(
+            seconds=320.0
+        )  # Later frame
+        assert dataset.records[187].timestamp == timedelta(
+            seconds=9.72
+        )  # Second period
 
         # Check some players
         home_player = dataset.metadata.teams[0].players[2]
         assert home_player.player_id == "8xwx2"
         assert dataset.records[0].players_coordinates[home_player] == Point(
-            x=-8.943903672572427, y=-28.171654132650364
+            x=-8.943903672572427, y=-28.171654132650365
         )
 
         away_player = dataset.metadata.teams[1].players[3]
@@ -84,6 +123,22 @@ class TestSecondSpectrumTracking:
         assert pitch_dimensions.y_dim.min == -33.985
         assert pitch_dimensions.y_dim.max == 33.985
 
+        # Check enriched metadata
+        date = dataset.metadata.date
+        if date:
+            assert isinstance(date, datetime)
+            assert date == datetime(1900, 1, 26, 0, 0, tzinfo=timezone.utc)
+
+        game_week = dataset.metadata.game_week
+        if game_week:
+            assert isinstance(game_week, str)
+            assert game_week == "1"
+
+        game_id = dataset.metadata.game_id
+        if game_id:
+            assert isinstance(game_id, str)
+            assert game_id == "1234456"
+
     def test_correct_normalized_deserialization(
         self, meta_data: Path, raw_data: Path, additional_meta_data: Path
     ):
@@ -96,7 +151,7 @@ class TestSecondSpectrumTracking:
 
         home_player = dataset.metadata.teams[0].players[2]
         assert dataset.records[0].players_coordinates[home_player] == Point(
-            x=0.4146981051733674, y=0.9144718866065965
+            x=0.4146981051733674, y=0.9144718866065964
         )
         assert (
             dataset.records[0].players_data[home_player].speed

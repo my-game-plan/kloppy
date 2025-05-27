@@ -1,37 +1,57 @@
+import json
 import logging
 import warnings
-from typing import List, Dict, Tuple, NamedTuple, IO, Optional, Union
-from enum import Enum, Flag
-from collections import Counter
-import numpy as np
-import json
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from typing import IO, Dict, NamedTuple, Optional, Union
 
 from kloppy.domain import (
-    attacking_direction_from_frame,
     AttackingDirection,
     DatasetFlag,
-    Frame,
     Ground,
     Metadata,
     Orientation,
     Period,
     Player,
+    PlayerData,
     Point,
     Point3D,
-    Position,
+    PositionType,
     Provider,
     Score,
     Team,
     TrackingDataset,
-    PlayerData,
+    attacking_directions_from_multi_frames,
 )
+from kloppy.domain.services.frame_factory import create_frame
+from kloppy.exceptions import DeserializationError
 from kloppy.infra.serializers.tracking.deserializer import (
     TrackingDataDeserializer,
 )
 from kloppy.utils import performance_logging
 
 logger = logging.getLogger(__name__)
+
+frame_rate = 10
+
+position_types_mapping: Dict[int, PositionType] = {
+    1: PositionType.Unknown,
+    2: PositionType.CenterBack,  # Provider: CB
+    3: PositionType.LeftCenterBack,  # Provider: LCB
+    4: PositionType.RightCenterBack,  # Provider: RCB
+    5: PositionType.LeftBack,  # Provider: LWB (mapped to Left Back)
+    6: PositionType.RightBack,  # Provider: RWB (mapped to Right Back)
+    7: PositionType.DefensiveMidfield,  # Provider: DM
+    8: PositionType.CenterMidfield,  # Provider: CM
+    9: PositionType.LeftMidfield,  # Provider: LM
+    10: PositionType.RightMidfield,  # Provider: RM
+    11: PositionType.AttackingMidfield,  # Provider: AM
+    12: PositionType.LeftWing,  # Provider: LW
+    13: PositionType.RightWing,  # Provider: RW
+    14: PositionType.LeftForward,  # Provider: LF
+    15: PositionType.Striker,  # Provider: CF (mapped to Striker)
+    16: PositionType.RightForward,  # Provider: RF
+    17: PositionType.Unknown,  # Provider: SUB (mapped to Unknown)
+}
 
 
 class SkillCornerInputs(NamedTuple):
@@ -73,6 +93,20 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
         frame_id = frame["frame"]
         frame_time = cls._timestamp_from_timestring(frame["time"])
 
+        if frame_period == 1:
+            frame_time -= timedelta(seconds=0)
+        elif frame_period == 2:
+            frame_time -= timedelta(seconds=45 * 60)
+        # TODO: check if the below is correct; just guessing here
+        elif frame_period == 3:
+            frame_time -= timedelta(seconds=90 * 60)
+        elif frame_period == 4:
+            frame_time -= timedelta(seconds=105 * 60)
+        elif frame_period == 5:
+            frame_time -= timedelta(seconds=120 * 60)
+        else:
+            raise ValueError(f"Unknown period id {frame_period}")
+
         ball_coordinates = None
         players_data = {}
 
@@ -96,15 +130,18 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
             track_id = frame_record.get("track_id", None)
             group_name = frame_record.get("group_name", None)
 
-            if trackable_object == ball_id:
-                group_name = "ball"
+            if trackable_object == ball_id or group_name == "balls":
+                group_name = "balls"
                 z = frame_record.get("z")
                 if z is not None:
                     z = float(z)
                 ball_coordinates = Point3D(x=float(x), y=float(y), z=z)
                 continue
 
-            elif trackable_object in referee_dict.keys():
+            elif (
+                trackable_object in referee_dict.keys()
+                or group_name == "referee"
+            ):
                 group_name = "referee"
                 continue  # Skip Referee Coords
 
@@ -136,9 +173,9 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
 
             players_data[player] = PlayerData(coordinates=Point(x, y))
 
-        return Frame(
+        frame = create_frame(
             frame_id=frame_id,
-            timestamp=frame_time - periods[frame_period].start_timestamp,
+            timestamp=frame_time,
             ball_coordinates=ball_coordinates,
             players_data=players_data,
             period=periods[frame_period],
@@ -147,88 +184,90 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
             other_data={},
         )
 
+        return frame
+
     @classmethod
     def _timestamp_from_timestring(cls, timestring):
         parts = timestring.split(":")
 
         if len(parts) == 2:
             m, s = parts
-            return 60 * float(m) + float(s)
+            return timedelta(seconds=60 * float(m) + float(s))
         elif len(parts) == 3:
             h, m, s = parts
-            return 3600 * float(h) + 60 * float(m) + float(s)
+            return timedelta(
+                seconds=3600 * float(h) + 60 * float(m) + float(s)
+            )
         else:
             raise ValueError("Invalid timestring format")
 
-    @classmethod
-    def _get_skillcorner_attacking_directions(cls, frames, periods):
-        """
-        with only partial tracking data we cannot rely on a single frame to
-        infer the attacking directions as a simple average of only some players
-        x-coords might not reflect the attacking direction.
-        """
-        attacking_directions = {}
-        frame_period_ids = np.array([_frame.period.id for _frame in frames])
-        frame_attacking_directions = np.array(
-            [
-                attacking_direction_from_frame(frame)
-                if len(frame.players_data) > 0
-                else AttackingDirection.NOT_SET
-                for frame in frames
-            ]
-        )
+    @staticmethod
+    def __replace_timestamp(obj):
+        if "timestamp" in obj:
+            obj["time"] = obj.pop("timestamp")
+        return obj
 
-        for period_id in periods.keys():
-            if period_id in frame_period_ids:
-                count = Counter(
-                    frame_attacking_directions[frame_period_ids == period_id]
-                )
-                attacking_directions[period_id] = count.most_common()[0][0]
-            else:
-                attacking_directions[period_id] = AttackingDirection.NOT_SET
+    def __load_json_raw(self, file):
+        # Extract the first few bytes
+        start_byte = file.read(1)
+        file.seek(0)
 
-        return attacking_directions
+        # Check if it starts with '{' or '['
+        if start_byte == b"[":
+            # It's a JSON array
+            try:
+                data = json.load(file)
+                for line in data:
+                    line = self.__replace_timestamp(line)
+                return data
+            except json.JSONDecodeError:
+                raise DeserializationError("Could not parse JSON data")
 
-    def __load_json(self, file):
-        if Path(file.name).suffix == ".jsonl":
-            data = []
-            for line in file:
-                obj = json.loads(line)
-                # for each line rename timestamp to time to make it compatible with existing loader
-                if "timestamp" in obj:
-                    obj["time"] = obj.pop("timestamp")
-                data.append(obj)
-            return data
-        else:
-            return json.load(file)
+        elif start_byte == b"{":
+            # It's a JSONL file
+            try:
+                data = []
+                for line in file:
+                    obj = json.loads(line)
+                    data.append(self.__replace_timestamp(obj))
+                return data
+            except json.JSONDecodeError:
+                raise DeserializationError("Could not parse JSONL data")
+
+        raise DeserializationError("Could not determine raw data format")
 
     @classmethod
     def __get_periods(cls, tracking):
         """gets the Periods contained in the tracking data"""
         periods = {}
 
-        _periods = np.array([f["period"] for f in tracking])
-        unique_periods = set(_periods)
-        unique_periods = [
-            period for period in unique_periods if period is not None
-        ]
+        # Extract unique periods while filtering out None values
+        unique_periods = {
+            frame["period"]
+            for frame in tracking
+            if frame["period"] is not None
+        }
 
         for period in unique_periods:
+            # Filter frames that belong to the current period and have valid "time"
             _frames = [
                 frame
                 for frame in tracking
                 if frame["period"] == period and frame["time"] is not None
             ]
 
-            periods[period] = Period(
-                id=period,
-                start_timestamp=cls._timestamp_from_timestring(
-                    _frames[0]["time"]
-                ),
-                end_timestamp=cls._timestamp_from_timestring(
-                    _frames[-1]["time"]
-                ),
-            )
+            # Ensure _frames is not empty before accessing the first and last elements
+            if _frames:
+                periods[period] = Period(
+                    id=period,
+                    start_timestamp=timedelta(
+                        seconds=_frames[0]["frame"] / frame_rate
+                    ),
+                    end_timestamp=timedelta(
+                        seconds=_frames[-1]["frame"] / frame_rate
+                    ),
+                )
+
         return periods
 
     @classmethod
@@ -263,13 +302,13 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
             first_name="Anon",
             last_name=track_id,
             starting=None,
-            position=None,
+            starting_position=None,
             attributes={},
         )
 
     def deserialize(self, inputs: SkillCornerInputs) -> TrackingDataset:
-        metadata = self.__load_json(inputs.meta_data)
-        raw_data = self.__load_json(inputs.raw_data)
+        metadata = json.load(inputs.meta_data)
+        raw_data = self.__load_json_raw(inputs.raw_data)
 
         with performance_logging("Loading metadata", logger=logger):
             periods = self.__get_periods(raw_data)
@@ -300,7 +339,7 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
             pitch_size_length = metadata["pitch_length"]
 
             transformer = self.get_transformer(
-                length=pitch_size_length, width=pitch_size_width
+                pitch_length=pitch_size_length, pitch_width=pitch_size_width
             )
 
             home_team_id = metadata["home_team"]["id"]
@@ -320,6 +359,33 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
             )
             teams = [home_team, away_team]
 
+            date = metadata.get("date_time")
+            if date:
+                date = datetime.strptime(date, "%Y-%m-%dT%H:%M:%SZ").replace(
+                    tzinfo=timezone.utc
+                )
+
+            game_id = metadata.get("id")
+            if game_id:
+                game_id = str(game_id)
+
+            home_team_coach = metadata.get("home_team_coach")
+            home_coach = (
+                f"{home_team_coach['first_name']} {home_team_coach['last_name']}"
+                if home_team_coach is not None
+                else None
+            )
+
+            away_team_coach = metadata.get("away_team_coach")
+            away_coach = (
+                f"{away_team_coach['first_name']} {away_team_coach['last_name']}"
+                if away_team_coach is not None
+                else None
+            )
+
+            if game_id:
+                game_id = str(game_id)
+
             for player_track_obj_id, player in player_dict.items():
                 team_id = player["team_id"]
 
@@ -338,10 +404,8 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
                     first_name=player["first_name"],
                     last_name=player["last_name"],
                     starting=player["start_time"] == "00:00:00",
-                    position=Position(
-                        position_id=player["player_role"].get("id"),
-                        name=player["player_role"].get("name"),
-                        coordinates=None,
+                    starting_position=position_types_mapping.get(
+                        player["player_role"]["id"], PositionType.Unknown
                     ),
                     attributes={},
                 )
@@ -390,11 +454,13 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
                 frames.append(frame)
                 n_frames += 1
 
-                if self.limit and n_frames >= self.limit:
+                if self.limit and n_frames + 1 >= (
+                    self.limit / self.sample_rate
+                ):
                     break
 
-        attacking_directions = self._get_skillcorner_attacking_directions(
-            frames, periods
+        attacking_directions = attacking_directions_from_multi_frames(
+            frames, list(periods.values())
         )
         if attacking_directions[1] == AttackingDirection.LTR:
             orientation = Orientation.HOME_AWAY
@@ -419,6 +485,10 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
             provider=Provider.SKILLCORNER,
             flags=~(DatasetFlag.BALL_STATE | DatasetFlag.BALL_OWNING_TEAM),
             coordinate_system=transformer.get_to_coordinate_system(),
+            date=date,
+            game_id=game_id,
+            home_coach=home_coach,
+            away_coach=away_coach,
         )
 
         return TrackingDataset(

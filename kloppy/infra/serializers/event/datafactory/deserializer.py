@@ -1,43 +1,35 @@
 import json
 import logging
-from typing import Dict, List, Tuple, Union, IO, NamedTuple
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+from typing import IO, Dict, List, NamedTuple, Tuple
 
 from kloppy.domain import (
-    AttackingDirection,
-    BallOutEvent,
     BallState,
     BodyPart,
     BodyPartQualifier,
-    CardEvent,
     CardType,
     DatasetFlag,
     Event,
     EventDataset,
-    FoulCommittedEvent,
-    GenericEvent,
     Ground,
     Metadata,
     Orientation,
-    PassEvent,
     PassResult,
     Period,
     Player,
     Point,
     Provider,
     Qualifier,
-    RecoveryEvent,
     Score,
     SetPieceQualifier,
     SetPieceType,
-    ShotEvent,
     ShotResult,
-    SubstitutionEvent,
     Team,
 )
 from kloppy.exceptions import DeserializationError
 from kloppy.infra.serializers.event.deserializer import EventDataDeserializer
-from kloppy.utils import Readable, performance_logging
-
+from kloppy.utils import performance_logging
 
 logger = logging.getLogger(__name__)
 
@@ -155,8 +147,10 @@ DF_EVENT_TYPE_PENALTY_SHOOTOUT_OFF_TARGET = 57
 DF_EVENT_TYPE_PENALTY_SHOOTOUT_POST = 183
 
 
-def parse_str_ts(raw_event: Dict) -> float:
-    return raw_event["t"]["m"] * 60 + (raw_event["t"]["s"] or 0)
+def parse_str_ts(raw_event: Dict) -> timedelta:
+    return timedelta(
+        seconds=raw_event["t"]["m"] * 60 + (raw_event["t"]["s"] or 0)
+    )
 
 
 def _parse_coordinates(coordinates: Dict[str, float]) -> Point:
@@ -353,7 +347,7 @@ class DatafactoryDeserializer(EventDataDeserializer[DatafactoryInputs]):
         return Provider.DATAFACTORY
 
     def deserialize(self, inputs: DatafactoryInputs) -> EventDataset:
-        transformer = self.get_transformer(length=2, width=2)
+        transformer = self.get_transformer()
 
         with performance_logging("load data", logger=logger):
             data = json.load(inputs.event_data)
@@ -397,8 +391,21 @@ class DatafactoryDeserializer(EventDataDeserializer[DatafactoryInputs]):
             # setup periods
             status = incidences.pop(DF_EVENT_CLASS_STATUS)
             # start timestamps are fixed
-            start_ts = {1: 0, 2: 45 * 60, 3: 90 * 60, 4: 105 * 60, 5: 120 * 60}
+            start_ts = {
+                1: timedelta(minutes=0),
+                2: timedelta(minutes=45),
+                3: timedelta(minutes=90),
+                4: timedelta(minutes=105),
+                5: timedelta(minutes=120),
+            }
             # check for end status updates to setup periods
+            start_event_types = {
+                DF_EVENT_TYPE_STATUS_MATCH_START,
+                DF_EVENT_TYPE_STATUS_SECOND_HALF_START,
+                DF_EVENT_TYPE_STATUS_FIRST_EXTRA_START,
+                DF_EVENT_TYPE_STATUS_SECOND_EXTRA_START,
+                DF_EVENT_TYPE_STATUS_PENALTY_SHOOTOUT_START,
+            }
             end_event_types = {
                 DF_EVENT_TYPE_STATUS_MATCH_END,
                 DF_EVENT_TYPE_STATUS_FIRST_HALF_END,
@@ -408,15 +415,49 @@ class DatafactoryDeserializer(EventDataDeserializer[DatafactoryInputs]):
             }
             periods = {}
             for status_update in status.values():
-                if status_update["type"] not in end_event_types:
+                if status_update["type"] not in (
+                    start_event_types | end_event_types
+                ):
                     continue
-                half = status_update["t"]["half"]
-                end_ts = parse_str_ts(status_update)
-                periods[half] = Period(
-                    id=half,
-                    start_timestamp=start_ts[half],
-                    end_timestamp=end_ts,
+                timestamp = datetime.strptime(
+                    match["date"]
+                    + status_update["time"]
+                    + match["stadiumGMT"],
+                    "%Y%m%d%H:%M:%S%z",
                 )
+                half = status_update["t"]["half"]
+                if status_update["type"] == DF_EVENT_TYPE_STATUS_MATCH_START:
+                    half = 1
+                if status_update["type"] in start_event_types:
+                    periods[half] = Period(
+                        id=half,
+                        start_timestamp=timestamp,
+                        end_timestamp=None,
+                    )
+                elif status_update["type"] in end_event_types:
+                    if half not in periods:
+                        raise DeserializationError(
+                            f"Missing start event for period {half}"
+                        )
+                    periods[half] = replace(
+                        periods[half], end_timestamp=timestamp
+                    )
+
+            try:
+                date = match["date"]
+                if date:
+                    # TODO: scheduledStart and stadiumGMT should probably be used here too
+                    date = datetime.strptime(date, "%Y%m%d").replace(
+                        tzinfo=timezone.utc
+                    )
+            except ValueError:
+                date = None
+            game_week = match.get("week", None)
+            if game_week:
+                game_week = str(game_week)
+            game_id = match.get("matchId", None)
+            if game_id:
+                game_id = str(game_id)
 
             # exclude goals, already listed as shots too
             incidences.pop(DF_EVENT_CLASS_GOALS)
@@ -444,7 +485,7 @@ class DatafactoryDeserializer(EventDataDeserializer[DatafactoryInputs]):
                     # skip invalid event
                     continue
 
-                timestamp = parse_str_ts(raw_event)
+                timestamp = parse_str_ts(raw_event) - start_ts[period.id]
                 if (
                     previous_event is not None
                     and previous_event["t"]["half"] != raw_event["t"]["half"]
@@ -578,6 +619,9 @@ class DatafactoryDeserializer(EventDataDeserializer[DatafactoryInputs]):
             score=score,
             provider=Provider.DATAFACTORY,
             coordinate_system=transformer.get_to_coordinate_system(),
+            date=date,
+            game_week=game_week,
+            game_id=game_id,
         )
 
         return EventDataset(

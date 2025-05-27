@@ -1,7 +1,8 @@
-import logging
 import json
+import logging
 from dataclasses import replace
-from typing import Dict, List, NamedTuple, IO, Optional
+from datetime import timedelta
+from typing import IO, Dict, List, NamedTuple, Optional
 
 from kloppy.domain import (
     BallState,
@@ -10,20 +11,21 @@ from kloppy.domain import (
     CarryResult,
     EventDataset,
     PassResult,
+    Period,
     Point,
     Provider,
     Qualifier,
+    ResultMixin,
     SetPieceQualifier,
     SetPieceType,
     ShotResult,
     TakeOnResult,
     Team,
 )
+from kloppy.exceptions import DeserializationError
 from kloppy.infra.serializers.event.deserializer import EventDataDeserializer
-
 from kloppy.infra.serializers.tracking.metrica_epts.metadata import (
     load_metadata,
-    DeserializationError,
 )
 from kloppy.utils import performance_logging
 
@@ -106,7 +108,11 @@ def _parse_subtypes(event: dict) -> List:
 
 
 def _parse_pass(
-    event: Dict, previous_event: Dict, subtypes: List, team: Team
+    period: Period,
+    event: Dict,
+    previous_event: Dict,
+    subtypes: List,
+    team: Team,
 ) -> Dict:
     event_type_id = event["type"]["id"]
 
@@ -114,7 +120,9 @@ def _parse_pass(
         result = PassResult.COMPLETE
         receiver_player = team.get_player_by_id(event["to"]["id"])
         receiver_coordinates = _parse_coordinates(event["end"])
-        receive_timestamp = event["end"]["time"]
+        receive_timestamp = (
+            timedelta(seconds=event["end"]["time"]) - period.start_timestamp
+        )
     else:
         if event_type_id == MS_PASS_OUTCOME_OUT:
             result = PassResult.OUT
@@ -208,11 +216,12 @@ def _parse_shot(event: Dict, previous_event: Dict, subtypes: List) -> Dict:
     return dict(result=result, qualifiers=qualifiers)
 
 
-def _parse_carry(event: Dict) -> Dict:
+def _parse_carry(period: Period, event: Dict) -> Dict:
     return dict(
         result=CarryResult.COMPLETE,
         end_coordinates=_parse_coordinates(event["end"]),
-        end_timestamp=event["end"]["time"],
+        end_timestamp=timedelta(seconds=event["end"]["time"])
+        - period.start_timestamp,
     )
 
 
@@ -255,8 +264,8 @@ class MetricaJsonEventDataDeserializer(
             )
 
             transformer = self.get_transformer(
-                length=metadata.pitch_dimensions.length,
-                width=metadata.pitch_dimensions.width,
+                pitch_length=metadata.pitch_dimensions.pitch_length,
+                pitch_width=metadata.pitch_dimensions.pitch_width,
             )
 
         with performance_logging("parse data", logger=logger):
@@ -285,7 +294,8 @@ class MetricaJsonEventDataDeserializer(
                 generic_event_kwargs = dict(
                     # from DataRecord
                     period=period,
-                    timestamp=raw_event["start"]["time"],
+                    timestamp=timedelta(seconds=raw_event["start"]["time"])
+                    - period.start_timestamp,
                     ball_owning_team=_parse_ball_owning_team(event_type, team),
                     ball_state=BallState.ALIVE,
                     # from Event
@@ -301,6 +311,7 @@ class MetricaJsonEventDataDeserializer(
                     continue
                 elif event_type in MS_PASS_TYPES:
                     pass_event_kwargs = _parse_pass(
+                        period=period,
                         event=raw_event,
                         previous_event=previous_event,
                         subtypes=subtypes,
@@ -332,7 +343,9 @@ class MetricaJsonEventDataDeserializer(
                     )
 
                 elif event_type == MS_EVENT_TYPE_CARRY:
-                    carry_event_kwargs = _parse_carry(event=raw_event)
+                    carry_event_kwargs = _parse_carry(
+                        period=period, event=raw_event
+                    )
                     event = self.event_factory.build_carry(
                         qualifiers=None,
                         **carry_event_kwargs,
@@ -365,15 +378,19 @@ class MetricaJsonEventDataDeserializer(
                     events.append(transformer.transform_event(event))
 
                 # Checks if the event ended out of the field and adds a synthetic out event
-                if event.result in OUT_EVENT_RESULTS:
+                if (
+                    isinstance(event, ResultMixin)
+                    and event.result in OUT_EVENT_RESULTS
+                ):
                     generic_event_kwargs["ball_state"] = BallState.DEAD
                     if raw_event["end"]["x"]:
                         generic_event_kwargs[
                             "coordinates"
                         ] = _parse_coordinates(raw_event["end"])
-                        generic_event_kwargs["timestamp"] = raw_event["end"][
-                            "time"
-                        ]
+                        generic_event_kwargs["timestamp"] = (
+                            timedelta(seconds=raw_event["end"]["time"])
+                            - period.start_timestamp
+                        )
 
                         event = self.event_factory.build_ball_out(
                             result=None,

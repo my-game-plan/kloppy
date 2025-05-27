@@ -1,7 +1,8 @@
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 import warnings
-from typing import Tuple, Dict, Optional, Union, NamedTuple, IO
+from typing import Dict, Optional, Union, NamedTuple, IO
 
 from lxml import objectify
 
@@ -9,7 +10,6 @@ from kloppy.domain import (
     TrackingDataset,
     DatasetFlag,
     AttackingDirection,
-    Frame,
     Point,
     Point3D,
     Team,
@@ -22,13 +22,41 @@ from kloppy.domain import (
     Player,
     Provider,
     PlayerData,
+    Score,
+    PositionType,
 )
+from kloppy.domain.services.frame_factory import create_frame
 
 from kloppy.utils import Readable, performance_logging
 
 from .deserializer import TrackingDataDeserializer
 
 logger = logging.getLogger(__name__)
+
+
+position_mapping = {
+    "GK": PositionType.Goalkeeper,
+    "RB": PositionType.RightBack,
+    "LB": PositionType.LeftBack,
+    "DM": PositionType.DefensiveMidfield,
+    "RCB": PositionType.RightCenterBack,
+    "LCB": PositionType.LeftCenterBack,
+    "CF": PositionType.Striker,
+    "AM": PositionType.AttackingMidfield,
+    "RW": PositionType.RightWing,
+    "LW": PositionType.LeftWing,
+    "CMR": PositionType.RightCentralMidfield,
+    "CML": PositionType.LeftCentralMidfield,
+    "CB": PositionType.CenterBack,
+    "WBR": PositionType.RightWingBack,
+    "WBL": PositionType.LeftWingBack,
+    "CM": PositionType.CentralMidfield,
+    "SS": PositionType.CenterAttackingMidfield,
+    "AMR": PositionType.RightAttackingMidfield,
+    "AML": PositionType.LeftAttackingMidfield,
+    "RWB": PositionType.RightWingBack,
+    "LWB": PositionType.LeftWingBack,
+}
 
 
 class SecondSpectrumInputs(NamedTuple):
@@ -57,7 +85,7 @@ class SecondSpectrumDeserializer(
     @classmethod
     def _frame_from_framedata(cls, teams, period, frame_data):
         frame_id = frame_data["frameIdx"]
-        frame_timestamp = frame_data["gameClock"]
+        frame_timestamp = timedelta(seconds=frame_data["gameClock"])
 
         if frame_data["ball"]["xyz"]:
             ball_x, ball_y, ball_z = frame_data["ball"]["xyz"]
@@ -94,7 +122,7 @@ class SecondSpectrumDeserializer(
                     coordinates=Point(float(x), float(y)), speed=speed
                 )
 
-        return Frame(
+        frame = create_frame(
             frame_id=frame_id,
             timestamp=frame_timestamp,
             ball_coordinates=ball_coordinates,
@@ -105,6 +133,8 @@ class SecondSpectrumDeserializer(
             period=period,
             other_data={},
         )
+
+        return frame
 
     @staticmethod
     def __validate_inputs(inputs: Dict[str, Readable]):
@@ -138,8 +168,12 @@ class SecondSpectrumDeserializer(
                         periods.append(
                             Period(
                                 id=int(period["number"]),
-                                start_timestamp=start_frame_id,
-                                end_timestamp=end_frame_id,
+                                start_timestamp=timedelta(
+                                    seconds=start_frame_id / frame_rate
+                                ),
+                                end_timestamp=timedelta(
+                                    seconds=end_frame_id / frame_rate
+                                ),
                             )
                         )
             else:
@@ -147,8 +181,8 @@ class SecondSpectrumDeserializer(
                     first_byte + inputs.meta_data.read()
                 ).match
                 frame_rate = int(match.attrib["iFrameRateFps"])
-                pitch_size_height = float(match.attrib["fPitchYSizeMeters"])
-                pitch_size_width = float(match.attrib["fPitchXSizeMeters"])
+                pitch_size_height = float(match.attrib["fPitchXSizeMeters"])
+                pitch_size_width = float(match.attrib["fPitchYSizeMeters"])
 
                 periods = []
                 for period in match.iterchildren(tag="period"):
@@ -159,8 +193,12 @@ class SecondSpectrumDeserializer(
                         periods.append(
                             Period(
                                 id=int(period.attrib["iId"]),
-                                start_timestamp=start_frame_id,
-                                end_timestamp=end_frame_id,
+                                start_timestamp=timedelta(
+                                    seconds=start_frame_id / frame_rate
+                                ),
+                                end_timestamp=timedelta(
+                                    seconds=end_frame_id / frame_rate
+                                ),
                             )
                         )
 
@@ -216,7 +254,10 @@ class SecondSpectrumDeserializer(
                                 player_id=player_data["optaId"],
                                 name=player_data["name"],
                                 starting=player_data["position"] != "SUB",
-                                position=player_data["position"],
+                                starting_position=position_mapping.get(
+                                    player_data["position"],
+                                    PositionType.Unknown,
+                                ),
                                 team=team,
                                 jersey_no=int(player_data["number"]),
                                 attributes=player_attributes,
@@ -231,7 +272,7 @@ class SecondSpectrumDeserializer(
         # Handles the tracking frame data
         with performance_logging("Loading data", logger=logger):
             transformer = self.get_transformer(
-                length=pitch_size_width, width=pitch_size_height
+                pitch_length=pitch_size_height, pitch_width=pitch_size_width
             )
 
             def _iter():
@@ -255,14 +296,17 @@ class SecondSpectrumDeserializer(
                     n += 1
 
             frames = []
-            for n, frame_data in enumerate(_iter()):
+            n_frames = 0
+            for frame_data in _iter():
                 period = periods[frame_data["period"] - 1]
 
                 frame = self._frame_from_framedata(teams, period, frame_data)
                 frame = transformer.transform_frame(frame)
                 frames.append(frame)
 
-                if self.limit and n + 1 >= self.limit:
+                n_frames += 1
+
+                if self.limit and n_frames >= self.limit:
                     break
 
         try:
@@ -281,16 +325,34 @@ class SecondSpectrumDeserializer(
             )
             orientation = Orientation.NOT_SET
 
+        if metadata:
+            score = Score(
+                home=metadata["homeScore"], away=metadata["awayScore"]
+            )
+            year, month, day = (
+                metadata["year"],
+                metadata["month"],
+                metadata["day"],
+            )
+            date = datetime(year, month, day, 0, 0, tzinfo=timezone.utc)
+            game_id = metadata["ssiId"]
+        else:
+            score = None
+            date = None
+            game_id = None
+
         metadata = Metadata(
             teams=teams,
             periods=periods,
             pitch_dimensions=transformer.get_to_coordinate_system().pitch_dimensions,
-            score=None,
+            score=score,
             frame_rate=frame_rate,
             orientation=orientation,
             provider=Provider.SECONDSPECTRUM,
             flags=DatasetFlag.BALL_OWNING_TEAM | DatasetFlag.BALL_STATE,
             coordinate_system=transformer.get_to_coordinate_system(),
+            date=date,
+            game_id=game_id,
         )
 
         return TrackingDataset(

@@ -1,24 +1,37 @@
-from typing import IO
+import warnings
+from datetime import timedelta
+from typing import IO, Dict, List, Optional, Tuple, Union
 
 from lxml import objectify
-import warnings
 
 from kloppy.domain import (
+    AttackingDirection,
+    DatasetFlag,
+    Dimension,
+    Ground,
+    NormalizedPitchDimensions,
+    Orientation,
     Period,
     PitchDimensions,
-    Dimension,
-    Score,
-    Ground,
-    DatasetFlag,
-    AttackingDirection,
-    Orientation,
-    Position,
-    Point,
+    Player,
+    PositionType,
     Provider,
+    Score,
+    Team,
     build_coordinate_system,
 )
 
-from .models import *
+from .models import (
+    DataFormatSpecification,
+    EPTSMetadata,
+    PlayerChannel,
+    Sensor,
+)
+
+position_types_mapping: Dict[int, PositionType] = {
+    -1: PositionType.Unknown,
+    0: PositionType.Goalkeeper,
+}
 
 
 def noop(x):
@@ -41,7 +54,7 @@ def _load_provider_parameters(parent_elm, value_mapper=None) -> Dict:
 
 def _load_periods(
     metadata_elm, team_map: dict, frame_rate: int
-) -> List[Period]:
+) -> Tuple[List[Period], AttackingDirection]:
     global_config_elm = metadata_elm.find("GlobalConfig")
     provider_params = _load_provider_parameters(
         global_config_elm.find("ProviderGlobalParameters")
@@ -89,9 +102,12 @@ def _load_periods(
             periods.append(
                 Period(
                     id=idx + 1,
-                    start_timestamp=float(provider_params[start_key])
-                    / frame_rate,
-                    end_timestamp=float(provider_params[end_key]) / frame_rate,
+                    start_timestamp=timedelta(
+                        seconds=float(provider_params[start_key]) / frame_rate
+                    ),
+                    end_timestamp=timedelta(
+                        seconds=float(provider_params[end_key]) / frame_rate
+                    ),
                 )
             )
         else:
@@ -108,34 +124,33 @@ def _load_players(players_elm, team: Team) -> List[Player]:
             jersey_no=int(player_elm.find("ShirtNumber")),
             player_id=player_elm.attrib["id"],
             name=str(player_elm.find("Name")),
-            position=_load_position_data(
+            starting_position=_load_position_data(
                 player_elm.find("ProviderPlayerParameters")
             ),
             attributes=_load_provider_parameters(
                 player_elm.find("ProviderPlayerParameters")
             ),
+            starting=True,  # Not sure if this is correct
         )
         for player_elm in players_elm.iterchildren(tag="Player")
         if player_elm.attrib["teamId"] == team.team_id
     ]
 
 
-def _load_position_data(parent_elm) -> Position:
+def _load_position_data(parent_elm) -> PositionType:
     # TODO: _load_provider_parameters is called twice to set position data
     # and then again to set the attributes. Also, data in position should not
     # be duplicated in attributes either.
     player_provider_parameters = _load_provider_parameters(parent_elm)
-    if "position_index" not in player_provider_parameters:
-        return None
 
-    return Position(
-        position_id=player_provider_parameters["position_index"],
-        name=player_provider_parameters["position_type"],
-        coordinates=Point(
-            player_provider_parameters["position_x"],
-            player_provider_parameters["position_y"],
-        ),
-    )
+    if "position_index" not in player_provider_parameters:
+        position_type = PositionType.Unknown
+    else:
+        position_type = position_types_mapping.get(
+            player_provider_parameters["position_index"], PositionType.Unknown
+        )
+
+    return position_type
 
 
 def _load_data_format_specifications(
@@ -170,17 +185,17 @@ def _load_pitch_dimensions(
     field_size_elm = field_size_path.find(metadata_elm).find("FieldSize")
 
     if field_size_elm is not None and normalized:
-        return PitchDimensions(
+        return NormalizedPitchDimensions(
             x_dim=Dimension(0, 1),
             y_dim=Dimension(0, 1),
-            length=int(field_size_elm.find("Width")),
-            width=int(field_size_elm.find("Height")),
+            pitch_length=int(field_size_elm.find("Width")),
+            pitch_width=int(field_size_elm.find("Height")),
         )
     else:
         return None
 
 
-def _parse_provider(provider_name: Union[str, None]) -> Provider:
+def _parse_provider(provider_name: Union[str, None]) -> Optional[Provider]:
     if provider_name:
         if provider_name == "Metrica Sports":
             return Provider.METRICA
@@ -193,14 +208,16 @@ def _parse_provider(provider_name: Union[str, None]) -> Provider:
         return None
 
 
-def _load_provider(metadata_elm, provider: Provider = None) -> Provider:
+def _load_provider(
+    metadata_elm, provider: Optional[Provider] = None
+) -> Optional[Provider]:
     provider_path = objectify.ObjectPath("Metadata.GlobalConfig.ProviderName")
     provider_name = provider_path.find(metadata_elm)
     provider_from_file = _parse_provider(provider_name)
     if provider:
         if provider_from_file and provider_from_file != provider:
             warnings.warn(
-                f"Given provider name is different to the name of the Provider read from the XML-file",
+                "Given provider name is different to the name of the Provider read from the XML-file",
                 Warning,
             )
     else:
@@ -209,7 +226,7 @@ def _load_provider(metadata_elm, provider: Provider = None) -> Provider:
 
 
 def load_metadata(
-    metadata_file: IO[bytes], provider: Provider = None
+    metadata_file: IO[bytes], provider: Optional[Provider] = None
 ) -> EPTSMetadata:
     root = objectify.fromstring(metadata_file.read())
     metadata = root.find("Metadata")
@@ -265,9 +282,7 @@ def load_metadata(
     }
 
     _all_players = [
-        player
-        for key, value in teams_metadata.items()
-        for player in value.players
+        player for value in teams_metadata.values() for player in value.players
     ]
 
     _player_map = {player.player_id: player for player in _all_players}
@@ -304,8 +319,8 @@ def load_metadata(
     if provider and pitch_dimensions:
         from_coordinate_system = build_coordinate_system(
             provider,
-            length=pitch_dimensions.length,
-            width=pitch_dimensions.width,
+            pitch_length=pitch_dimensions.pitch_length,
+            pitch_width=pitch_dimensions.pitch_width,
         )
     else:
         from_coordinate_system = None

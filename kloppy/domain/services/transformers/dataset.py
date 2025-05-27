@@ -1,28 +1,31 @@
+import warnings
 from dataclasses import fields, replace
-
-from kloppy.domain.models.tracking import PlayerData
-from typing import Union, Optional
+from typing import Optional, Union
 
 from kloppy.domain import (
+    DEFAULT_PITCH_LENGTH,
+    DEFAULT_PITCH_WIDTH,
     AttackingDirection,
+    CoordinateSystem,
+    CustomCoordinateSystem,
     Dataset,
     DatasetFlag,
-    DataRecord,
+    DatasetType,
     EventDataset,
     Frame,
     Orientation,
-    PitchDimensions,
     Period,
+    PitchDimensions,
     Point,
     Point3D,
+    Provider,
+    ProviderCoordinateSystem,
     Team,
     TrackingDataset,
-    CoordinateSystem,
-    Provider,
     build_coordinate_system,
-    DatasetType,
 )
 from kloppy.domain.models.event import Event
+from kloppy.domain.models.tracking import PlayerData
 from kloppy.exceptions import KloppyError
 
 
@@ -102,16 +105,25 @@ class DatasetTransformer:
         if point is None:
             return None
 
-        x_base = self._from_pitch_dimensions.x_dim.to_base(point.x)
-        y_base = self._from_pitch_dimensions.y_dim.to_base(point.y)
+        base_pitch_length = (
+            self._from_pitch_dimensions.pitch_length or DEFAULT_PITCH_LENGTH
+        )
+        base_pitch_width = (
+            self._from_pitch_dimensions.pitch_width or DEFAULT_PITCH_WIDTH
+        )
 
-        x = self._to_pitch_dimensions.x_dim.from_base(x_base)
-        y = self._to_pitch_dimensions.y_dim.from_base(y_base)
+        point_base = self._from_pitch_dimensions.to_metric_base(
+            point, pitch_length=base_pitch_length, pitch_width=base_pitch_width
+        )
+        print(point_base)
+        print(self._to_pitch_dimensions.from_metric_base)
+        point_to = self._to_pitch_dimensions.from_metric_base(
+            point=point_base,
+            pitch_length=base_pitch_length,
+            pitch_width=base_pitch_width,
+        )
 
-        if isinstance(point, Point3D):
-            return Point3D(x=x, y=y, z=point.z)
-        else:
-            return Point(x=x, y=y)
+        return point_to
 
     def flip_point(
         self, point: Union[Point, Point3D, None]
@@ -135,8 +147,8 @@ class DatasetTransformer:
 
     def __needs_flip(
         self,
-        ball_owning_team: Team,
         period: Period,
+        ball_owning_team: Optional[Team] = None,
         action_executing_team: Optional[Team] = None,
     ) -> bool:
         if (
@@ -179,8 +191,8 @@ class DatasetTransformer:
         # Flip frame based on orientation
         if self._needs_orientation_change:
             if self.__needs_flip(
-                ball_owning_team=frame.ball_owning_team,
                 period=frame.period,
+                ball_owning_team=frame.ball_owning_team,
             ):
                 frame = self.__flip_frame(frame)
 
@@ -211,6 +223,7 @@ class DatasetTransformer:
                 for key, player_data in frame.players_data.items()
             },
             other_data=frame.other_data,
+            statistics=frame.statistics,
         )
 
     def __change_frame_dimensions(self, frame: Frame):
@@ -237,6 +250,7 @@ class DatasetTransformer:
                 for key, player_data in frame.players_data.items()
             },
             other_data=frame.other_data,
+            statistics=frame.statistics,
         )
 
     def __change_point_coordinate_system(
@@ -245,23 +259,33 @@ class DatasetTransformer:
         if not point:
             return None
 
-        x = self._from_pitch_dimensions.x_dim.to_base(point.x)
-        y = self._from_pitch_dimensions.y_dim.to_base(point.y)
+        base_pitch_length = (
+            self._from_pitch_dimensions.pitch_length or DEFAULT_PITCH_LENGTH
+        )
+        base_pitch_width = (
+            self._from_pitch_dimensions.pitch_width or DEFAULT_PITCH_WIDTH
+        )
+
+        point_base = self._from_pitch_dimensions.to_metric_base(
+            point, pitch_length=base_pitch_length, pitch_width=base_pitch_width
+        )
 
         if (
             self._from_coordinate_system.vertical_orientation
             != self._to_coordinate_system.vertical_orientation
         ):
-            y = 1 - y
+            point_base = replace(
+                point_base,
+                y=base_pitch_width - point_base.y,
+            )
 
-        if not self._to_coordinate_system.normalized:
-            x = self._to_pitch_dimensions.x_dim.from_base(x)
-            y = self._to_pitch_dimensions.y_dim.from_base(y)
+        point_to = self._to_pitch_dimensions.from_metric_base(
+            point_base,
+            pitch_length=base_pitch_length,
+            pitch_width=base_pitch_width,
+        )
 
-        if isinstance(point, Point3D):
-            return Point3D(x=x, y=y, z=point.z)
-        else:
-            return Point(x=x, y=y)
+        return point_to
 
     def __flip_frame(self, frame: Frame):
         players_data = {}
@@ -284,6 +308,7 @@ class DatasetTransformer:
             ball_coordinates=self.flip_point(frame.ball_coordinates),
             players_data=players_data,
             other_data=frame.other_data,
+            statistics=frame.statistics,
         )
 
     def transform_event(self, event: Event) -> Event:
@@ -298,8 +323,8 @@ class DatasetTransformer:
         # Flip event based on orientation
         if self._needs_orientation_change:
             if self.__needs_flip(
-                ball_owning_team=event.ball_owning_team,
                 period=event.period,
+                ball_owning_team=event.ball_owning_team,
                 action_executing_team=event.team,
             ):
                 event = self.__flip_event(event)
@@ -372,17 +397,35 @@ class DatasetTransformer:
 
         if to_pitch_dimensions is not None:
             # Transform the pitch dimensions and optionally the orientation
-            transformer = cls(
-                from_pitch_dimensions=dataset.metadata.pitch_dimensions,
-                from_orientation=dataset.metadata.orientation,
-                to_pitch_dimensions=to_pitch_dimensions,
-                to_orientation=to_orientation,
-            )
-            metadata = replace(
-                dataset.metadata,
-                pitch_dimensions=to_pitch_dimensions,
-                orientation=to_orientation,
-            )
+            if dataset.metadata.coordinate_system is None:
+                transformer = cls(
+                    from_pitch_dimensions=dataset.metadata.pitch_dimensions,
+                    from_orientation=dataset.metadata.orientation,
+                    to_pitch_dimensions=to_pitch_dimensions,
+                    to_orientation=to_orientation,
+                )
+                metadata = replace(
+                    dataset.metadata,
+                    pitch_dimensions=to_pitch_dimensions,
+                    orientation=to_orientation,
+                )
+            else:
+                to_coordinate_system = CustomCoordinateSystem(
+                    origin=dataset.metadata.coordinate_system.origin,
+                    pitch_dimensions=to_pitch_dimensions,
+                    vertical_orientation=dataset.metadata.coordinate_system.vertical_orientation,
+                )
+                transformer = cls(
+                    from_coordinate_system=dataset.metadata.coordinate_system,
+                    from_orientation=dataset.metadata.orientation,
+                    to_coordinate_system=to_coordinate_system,
+                    to_orientation=to_orientation,
+                )
+                metadata = replace(
+                    dataset.metadata,
+                    coordinate_system=to_coordinate_system,
+                    orientation=to_orientation,
+                )
 
         elif to_coordinate_system is not None:
             # Transform the coordinate system and optionally the orientation
@@ -395,7 +438,6 @@ class DatasetTransformer:
             metadata = replace(
                 dataset.metadata,
                 coordinate_system=to_coordinate_system,
-                pitch_dimensions=to_coordinate_system.pitch_dimensions,
                 orientation=to_orientation,
             )
 
@@ -476,25 +518,62 @@ class DatasetTransformerBuilder:
 
     def build(
         self,
-        length: float,
-        width: float,
         provider: Provider,
         dataset_type: DatasetType,
+        pitch_length: Optional[float] = None,
+        pitch_width: Optional[float] = None,
     ):
         from_coordinate_system = build_coordinate_system(
             # This comment forces black to keep the arguments as multi-line
             provider,
-            length=length,
-            width=width,
             dataset_type=dataset_type,
+            pitch_length=pitch_length,
+            pitch_width=pitch_width,
         )
 
         to_coordinate_system = build_coordinate_system(
             self.to_coordinate_system,
-            length=length,
-            width=width,
             dataset_type=self.to_dataset_type or dataset_type,
+            pitch_length=pitch_length,
+            pitch_width=pitch_width,
         )
+
+        needs_pitch_dimensions_change = (
+            from_coordinate_system.pitch_dimensions
+            != to_coordinate_system.pitch_dimensions
+        )
+        not_standardized = (
+            not from_coordinate_system.pitch_dimensions.standardized
+            or not to_coordinate_system.pitch_dimensions.standardized
+        )
+        missing_dimensions = pitch_length is None or pitch_width is None
+        if (
+            needs_pitch_dimensions_change
+            and not_standardized
+            and missing_dimensions
+        ):
+            from_coordinate_system_name = (
+                from_coordinate_system.provider
+                if isinstance(from_coordinate_system, ProviderCoordinateSystem)
+                else "custom"
+            )
+            to_coordinate_system_name = (
+                to_coordinate_system.provider
+                if isinstance(to_coordinate_system, ProviderCoordinateSystem)
+                else "custom"
+            )
+            warnings.warn(
+                "The pitch dimensions are required to transform coordinates "
+                f"from {from_coordinate_system_name} to {to_coordinate_system_name}. "
+                f"Using default pitch dimensions ({DEFAULT_PITCH_LENGTH} x {DEFAULT_PITCH_WIDTH}). "
+                "This might result in inaccurate coordinates."
+            )
+            return self.build(
+                provider,
+                dataset_type,
+                pitch_length=DEFAULT_PITCH_LENGTH,
+                pitch_width=DEFAULT_PITCH_WIDTH,
+            )
 
         return DatasetTransformer(
             from_coordinate_system=from_coordinate_system,
