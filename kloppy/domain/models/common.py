@@ -1338,7 +1338,7 @@ class HawkEyeCoordinateSystem(ProviderCoordinateSystem):
             )
 
 
-class SmartStatsCoordinateSystem(CoordinateSystem):
+class SmartStatsCoordinateSystem(ProviderCoordinateSystem):
     @property
     def provider(self) -> Provider:
         return Provider.SMARTSTATS
@@ -1358,6 +1358,7 @@ class SmartStatsCoordinateSystem(CoordinateSystem):
             y_dim=Dimension(0, 68),
             pitch_length=self._pitch_length,
             pitch_width=self._pitch_width,
+            standardized=False,
         )
 
 

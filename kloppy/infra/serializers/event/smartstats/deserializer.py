@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import timedelta
 from typing import Dict, List, Tuple, NamedTuple, IO, Optional
 
 from kloppy.domain import (
@@ -44,6 +45,7 @@ from kloppy.domain import (
     FormationType,
     Score,
     BallState,
+    PositionType,
 )
 from kloppy.exceptions import DeserializationError
 from kloppy.utils import performance_logging
@@ -63,33 +65,33 @@ FORMATIONS = {
 }
 
 POSITIONS = {
-    4: "GK",
-    5: "LCD",
-    6: "RCD",
-    7: "RD",
-    8: "LD",
-    9: "LCM",
-    10: "CDM",
-    11: "RCM",
-    12: "CF",
-    13: "LAM",
-    14: "RAM",
-    15: "Substitute player",
-    17: "CAM",
-    18: "RM",
-    19: "LM",
-    20: "LCF",
-    21: "RCF",
-    83: "RCDM",
-    84: "LCDM",
-    91: "RDM",
-    92: "LCAM",
-    93: "CD",
-    94: "RCAM",
-    95: "LDM",
-    112: "CM",
-    198: "LF",
-    199: "RF",
+    4: PositionType.Goalkeeper,  # GK
+    5: PositionType.LeftCenterBack,  # LCD
+    6: PositionType.RightCenterBack,  # RCD
+    7: PositionType.RightBack,  # RD
+    8: PositionType.LeftBack,  # LD
+    9: PositionType.LeftCentralMidfield,  # LCM
+    10: PositionType.CenterDefensiveMidfield,  # CDM
+    11: PositionType.RightCentralMidfield,  # RCM
+    12: PositionType.Striker,  # CF
+    13: PositionType.LeftAttackingMidfield,  # LAM
+    14: PositionType.RightAttackingMidfield,  # RAM
+    # 15: None,  # Substitute Player
+    17: PositionType.CenterAttackingMidfield,  # CAM
+    18: PositionType.RightMidfield,  # RM
+    19: PositionType.LeftMidfield,  # LM
+    20: PositionType.Striker,  # LCF
+    21: PositionType.Striker,  # RCF
+    83: PositionType.RightDefensiveMidfield,  # RCDM
+    84: PositionType.LeftDefensiveMidfield,  # LCDM
+    91: PositionType.RightDefensiveMidfield,  # RDM
+    92: PositionType.LeftAttackingMidfield,  # LCAM
+    93: PositionType.CenterBack,  # CB
+    94: PositionType.RightAttackingMidfield,  # RCAM
+    95: PositionType.LeftDefensiveMidfield,  # LDM
+    112: PositionType.CentralMidfield,  # CM
+    198: PositionType.LeftForward,  # LF
+    199: PositionType.RightForward,  # RF
 }
 
 BODY_PARTS = {
@@ -261,6 +263,8 @@ logger = logging.getLogger(__name__)
 
 class SmartStatsInputs(NamedTuple):
     raw_data: IO[bytes]
+    pitch_length: Optional[float] = None
+    pitch_width: Optional[float] = None
 
 
 def _get_event_set_piece_qualifier(
@@ -441,8 +445,8 @@ def _parse_substitution(
     raw_event: Dict, generic_event_kwargs: Dict, team: Team
 ) -> (Dict, Dict):
     substitution_generic_event_kwargs = generic_event_kwargs.copy()
-    player_on = team.get_player_by_id(str(raw_event["recipient_id"]))
-    player_off = team.get_player_by_id(str(raw_event["creator_id"]))
+    player_on = team.get_player_by_id(str(raw_event["creator_id"]))
+    player_off = team.get_player_by_id(str(raw_event["recipient_id"]))
     substitution_generic_event_kwargs["player"] = player_off
     substitution_kwargs = dict(
         replacement_player=player_on, result=None, qualifiers=None
@@ -524,8 +528,9 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
         raw_events: Dict, home_team: Team, away_team: Team
     ) -> (Team, Team):
         def create_player(raw_event: Dict, team: Team) -> Player:
+            starting = raw_event["second"] == 0.0
+            position = POSITIONS[raw_event["action_id"]] if starting else None
             player_info = raw_event["creator"]
-            position = event["action"]["title"]
             first_name = player_info["name"]
             last_name = player_info["surname"]
             if first_name and last_name:
@@ -541,7 +546,8 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
                 team=team,
                 jersey_no=player_info["number"],
                 name=full_name,
-                position=position,
+                starting_position=position,
+                starting=starting,
             )
 
             return player
@@ -574,36 +580,32 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
                         away_team.starting_formation = FORMATIONS[
                             event["action_id"]
                         ]
-                elif action_id == SUBSTITUTION:
-                    if str(event["creator_team_id"]) == home_team.team_id:
-                        player_on = create_player(event, home_team)
-                        home_team.players.append(player_on)
-                    elif str(event["creator_team_id"]) == away_team.team_id:
-                        player_on = create_player(event, away_team)
-                        away_team.players.append(player_on)
-                    # else:
-                    #     raise DeserializationError(
-                    #         f"Unexpected team id: {event['creator_team_id']}")
-                # elif action_id not in LINEUP_INFORMATION_EVENTS:  # start of the match
-                #     break
 
         return home_team, away_team
 
     @staticmethod
-    def create_periods() -> List[Period]:
-        periods = [
-            Period(
-                id=period_id,
-                start_timestamp=None,
-                end_timestamp=None,
+    def create_periods(raw_events: Dict) -> List[Period]:
+        periods = []
+        for idx, marker in enumerate(
+            ["first_half_markers", "second_half_markers"]
+        ):
+            half_events = raw_events[marker]
+            start_timestamp = (
+                timedelta(0) if not periods else periods[-1].end_timestamp
             )
-            for period_id in [1, 2]
-        ]
+            period = Period(
+                id=idx + 1,
+                start_timestamp=start_timestamp,
+                end_timestamp=timedelta(seconds=(half_events[-1]["second"])),
+            )
+            periods.append(period)
 
         return periods
 
     def deserialize(self, inputs: SmartStatsInputs) -> EventDataset:
-        transformer = self.get_transformer(length=105, width=68)
+        transformer = self.get_transformer(
+            inputs.pitch_length, inputs.pitch_width
+        )
 
         with performance_logging("load data", logger=logger):
             raw_data = json.load(inputs.raw_data)
@@ -613,7 +615,7 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
         away_team = self.create_team(match_info["away_team"], Ground.AWAY)
         home_team, away_team = self.add_players(raw_data, home_team, away_team)
         teams = {home_team.team_id: home_team, away_team.team_id: away_team}
-        periods = self.create_periods()
+        periods = self.create_periods(raw_data)
         score = Score(
             home=match_info["home_team_score"],
             away=match_info["away_team_score"],
@@ -658,9 +660,11 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
                         coordinates = None
                     generic_event_kwargs = dict(
                         period=period,
-                        timestamp=raw_event["second"]
+                        timestamp=timedelta(seconds=raw_event["second"])
                         if period.id == 1
-                        else raw_event["second"] - 45 * 60,
+                        else timedelta(
+                            seconds=(raw_event["second"] - 45 * 60)
+                        ),
                         ball_owning_team=possession_team,
                         ball_state=None,
                         event_id=str(raw_event["id"]),
