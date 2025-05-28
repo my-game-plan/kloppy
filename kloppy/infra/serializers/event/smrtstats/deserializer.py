@@ -261,7 +261,7 @@ LINEUP_INFORMATION_EVENTS = (
 logger = logging.getLogger(__name__)
 
 
-class SmartStatsInputs(NamedTuple):
+class SmrtStatsInputs(NamedTuple):
     raw_data: IO[bytes]
     pitch_length: Optional[float] = None
     pitch_width: Optional[float] = None
@@ -510,10 +510,10 @@ def _parse_pass(raw_event: Dict, action_id: int, team: Team) -> Dict:
     )
 
 
-class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
+class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
     @property
     def provider(self) -> Provider:
-        return Provider.SMARTSTATS
+        return Provider.SMRTSTATS
 
     @staticmethod
     def create_team(team_info: Dict, ground: Ground) -> Team:
@@ -602,7 +602,7 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
 
         return periods
 
-    def deserialize(self, inputs: SmartStatsInputs) -> EventDataset:
+    def deserialize(self, inputs: SmrtStatsInputs) -> EventDataset:
         transformer = self.get_transformer(
             inputs.pitch_length, inputs.pitch_width
         )
@@ -800,7 +800,7 @@ class SmartStatsDeserializer(EventDataDeserializer[SmartStatsInputs]):
             score=score,
             orientation=Orientation.ACTION_EXECUTING_TEAM,
             flags=None,
-            provider=Provider.SMARTSTATS,
+            provider=Provider.SMRTSTATS,
             coordinate_system=transformer.get_to_coordinate_system(),
         )
 

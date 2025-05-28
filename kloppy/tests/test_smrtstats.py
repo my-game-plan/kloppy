@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 
-from kloppy import smartstats
+from kloppy import smrtstats
 from kloppy.domain import (
     BallState,
     BodyPart,
@@ -53,21 +53,21 @@ from kloppy.exceptions import DeserializationError
 
 @pytest.fixture(scope="module")
 def dataset(base_dir) -> EventDataset:
-    """Load SmartStats data for Belgium - Portugal at Euro 2020"""
-    dataset = smartstats.load(
+    """Load SmrtStats data for Belgium - Portugal at Euro 2020"""
+    dataset = smrtstats.load(
         raw_data=base_dir / "files" / "smrtstats.json",
-        coordinates="smartstats",
+        coordinates="smrtstats",
     )
     assert dataset.dataset_type == DatasetType.EVENT
     return dataset
 
 
-class TestSmartStatsMetadata:
+class TestSmrtStatsMetadata:
     """Tests related to deserializing metadata"""
 
     def test_provider(self, dataset):
-        """It should set the SmartStats provider"""
-        assert dataset.metadata.provider == Provider.SMARTSTATS
+        """It should set the SmrtStats provider"""
+        assert dataset.metadata.provider == Provider.SMRTSTATS
 
     def test_orientation(self, dataset):
         """It should set the action-executing-team orientation"""
@@ -149,11 +149,11 @@ class TestSmartStatsMetadata:
     def test_coordinate_system(self, dataset):
         """It should set the correct coordinate system"""
         assert dataset.metadata.coordinate_system == build_coordinate_system(
-            Provider.SMARTSTATS
+            Provider.SMRTSTATS
         )
 
 
-class TestSmartStatsEvent:
+class TestSmrtStatsEvent:
     """Generic tests related to deserializing events"""
 
     def test_generic_attributes(self, dataset: EventDataset):
@@ -170,7 +170,7 @@ class TestSmartStatsEvent:
         # assert event.ball_state == BallState.ALIVE
 
 
-class TestSmartStatsPassEvent:
+class TestSmrtStatsPassEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all pass events"""
         events = dataset.find_all("pass")
@@ -227,7 +227,7 @@ class TestSmartStatsPassEvent:
         assert duel.result == DuelResult.WON
 
 
-class TestSmartStatsShotEvent:
+class TestSmrtStatsShotEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all shot events"""
         events = dataset.find_all("shot")
@@ -250,7 +250,7 @@ class TestSmartStatsShotEvent:
     #     )
 
 
-class TestSmartStatsInterceptionEvent:
+class TestSmrtStatsInterceptionEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all interception events"""
         events = dataset.find_all("interception")
@@ -262,7 +262,7 @@ class TestSmartStatsInterceptionEvent:
         assert interception.result == InterceptionResult.SUCCESS
 
 
-class TestSmartStatsClearanceEvent:
+class TestSmrtStatsClearanceEvent:
     """Tests related to deserializing 9/Clearance events"""
 
     def test_deserialize_all(self, dataset: EventDataset):
@@ -277,7 +277,7 @@ class TestSmartStatsClearanceEvent:
         assert clearance.result is None
 
 
-# class TestSmartStatsMiscontrolEvent:
+# class TestSmrtStatsMiscontrolEvent:
 #     """Tests related to deserializing 19/Miscontrol events"""
 #
 #     def test_deserialize_all(self, dataset: EventDataset):
@@ -300,7 +300,7 @@ class TestSmartStatsClearanceEvent:
 #         assert True  # can happen according to the documentation, but not in the dataset
 
 
-class TestSmartStatsDribbleEvent:
+class TestSmrtStatsDribbleEvent:
     """Tests related to deserializing 17/Dribble events"""
 
     def test_deserialize_all(self, dataset: EventDataset):
@@ -320,7 +320,7 @@ class TestSmartStatsDribbleEvent:
         assert dribble.result == TakeOnResult.INCOMPLETE
 
 
-# class TestSmartStatsCarryEvent:
+# class TestSmrtStatsCarryEvent:
 #     """Tests related to deserializing 22/Carry events"""
 #
 #     def test_deserialize_all(self, dataset: EventDataset):
@@ -341,7 +341,7 @@ class TestSmartStatsDribbleEvent:
 #         )
 
 
-class TestSmartStatsDuelEvent:
+class TestSmrtStatsDuelEvent:
     """Tests related to deserializing 1/Duel events"""
 
     def test_deserialize_all(self, dataset: EventDataset):
@@ -368,7 +368,7 @@ class TestSmartStatsDuelEvent:
         ]
 
 
-class TestSmartStatsGoalkeeperEvent:
+class TestSmrtStatsGoalkeeperEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all goalkeeper events"""
         events = dataset.find_all("goalkeeper")
@@ -383,7 +383,7 @@ class TestSmartStatsGoalkeeperEvent:
         )
 
 
-class TestSmartStatsSubstitutionEvent:
+class TestSmrtStatsSubstitutionEvent:
     """Tests related to deserializing 18/Substitution events"""
 
     def test_deserialize_all(self, dataset: EventDataset):
@@ -400,7 +400,7 @@ class TestSmartStatsSubstitutionEvent:
         ].get_player_by_id("356")
 
 
-class TestsSmartStatsBadBehaviourEvent:
+class TestsSmrtStatsBadBehaviourEvent:
     """Tests related to deserializing 22/Bad Behaviour events"""
 
     def test_deserialize_all(self, dataset: EventDataset):
@@ -412,7 +412,7 @@ class TestsSmartStatsBadBehaviourEvent:
             assert event.card_type == CardType.FIRST_YELLOW
 
 
-class TestSmartStatsFoulCommittedEvent:
+class TestSmrtStatsFoulCommittedEvent:
     """Tests related to deserializing 2/Foul Committed events"""
 
     def test_deserialize_all(self, dataset: EventDataset):
@@ -421,7 +421,7 @@ class TestSmartStatsFoulCommittedEvent:
         assert len(events) == 33
 
 
-# class TestSmartStatsRecoveryEvent:
+# class TestSmrtStatsRecoveryEvent:
 #     """Tests related to deserializing 23/Recovery events"""
 #
 #     def test_deserialize_successful(self, dataset: EventDataset):
@@ -441,7 +441,7 @@ class TestSmartStatsFoulCommittedEvent:
 #         assert failed_recovery.result == DuelResult.LOST
 
 
-# class TestSmartStatsTacticalShiftEvent:
+# class TestSmrtStatsTacticalShiftEvent:
 #     """Tests related to deserializing 34/Tactical Shift events"""
 #
 #     def test_deserialize_all(self, dataset: EventDataset):
@@ -457,9 +457,9 @@ class TestSmartStatsFoulCommittedEvent:
 #         assert formation_change.formation_type == FormationType("4-3-3")
 #
 #     def test_player_position(self, base_dir):
-#         dataset = smartstats.load(
-#             lineup_data=base_dir / "files/smartstats_lineup.json",
-#             event_data=base_dir / "files/smartstats_event.json",
+#         dataset = smrtstats.load(
+#             lineup_data=base_dir / "files/smrtstats_lineup.json",
+#             event_data=base_dir / "files/smrtstats_event.json",
 #         )
 #
 #         for item in dataset.aggregate("minutes_played", include_position=True):

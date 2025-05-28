@@ -1,7 +1,7 @@
 from kloppy.config import get_config
-from kloppy.infra.serializers.event.smartstats import (
-    SmartStatsDeserializer,
-    SmartStatsInputs,
+from kloppy.infra.serializers.event.smrtstats import (
+    SmrtStatsDeserializer,
+    SmrtStatsInputs,
 )
 from kloppy.domain import EventDataset, Optional, List, EventFactory
 from kloppy.io import open_as_file, FileLike
@@ -14,7 +14,7 @@ def load(
     event_factory: Optional[EventFactory] = None,
 ) -> EventDataset:
     """
-    Load SmartStats event data into a [`EventDataset`][kloppy.domain.models.event.EventDataset]
+    Load SmrtStats event data into a [`EventDataset`][kloppy.domain.models.event.EventDataset]
 
     Parameters:
         raw_data:
@@ -23,7 +23,7 @@ def load(
         event_factory:
     """
 
-    deserializer = SmartStatsDeserializer(
+    deserializer = SmrtStatsDeserializer(
         event_types=event_types,
         coordinate_system=coordinates,
         event_factory=event_factory or get_config("event_factory"),
@@ -31,5 +31,5 @@ def load(
 
     with open_as_file(raw_data) as raw_data_fp:
         return deserializer.deserialize(
-            inputs=SmartStatsInputs(raw_data=raw_data_fp),
+            inputs=SmrtStatsInputs(raw_data=raw_data_fp),
         )

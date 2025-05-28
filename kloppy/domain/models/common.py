@@ -134,7 +134,7 @@ class Provider(Enum):
     HAWKEYE = "hawkeye"
     SPORTVU = "sportvu"
     SIGNALITY = "signality"
-    SMARTSTATS = "smartstats"
+    SMRTSTATS = "smrtstats"
     OTHER = "other"
 
     def __str__(self):
@@ -1338,10 +1338,10 @@ class HawkEyeCoordinateSystem(ProviderCoordinateSystem):
             )
 
 
-class SmartStatsCoordinateSystem(ProviderCoordinateSystem):
+class SmrtStatsCoordinateSystem(ProviderCoordinateSystem):
     @property
     def provider(self) -> Provider:
-        return Provider.SMARTSTATS
+        return Provider.SMRTSTATS
 
     @property
     def origin(self) -> Origin:
@@ -1415,7 +1415,7 @@ def build_coordinate_system(
         Provider.HAWKEYE: HawkEyeCoordinateSystem,
         Provider.SPORTVU: SportVUCoordinateSystem,
         Provider.SIGNALITY: SignalityCoordinateSystem,
-        Provider.SMARTSTATS: SmartStatsCoordinateSystem,
+        Provider.SMRTSTATS: SmrtStatsCoordinateSystem,
     }
 
     if provider in coordinate_systems:
