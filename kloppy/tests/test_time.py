@@ -155,7 +155,7 @@ class TestAbsTime:
 
         home_team, away_team = dataset.metadata.teams
 
-        minutes_played_map = {
+        player_minutes_played_map = {
             item.key.player: item.duration for item in minutes_played if item.key.player
         }
 
@@ -168,26 +168,34 @@ class TestAbsTime:
 
         # Didn't play
         player_malcon = home_team.get_player_by_id(3109)
-        assert player_malcon not in minutes_played_map
+        assert player_malcon not in player_minutes_played_map
 
         # Started second half
         player_coutinho = home_team.get_player_by_id(3501)
-        assert minutes_played_map[player_coutinho] == timedelta(
+        assert player_minutes_played_map[player_coutinho] == timedelta(
             seconds=2852.053
         )
 
         # Replaced in second half
         player_busquets = home_team.get_player_by_id(5203)
-        assert minutes_played_map[player_busquets] == timedelta(
+        assert player_minutes_played_map[player_busquets] == timedelta(
             seconds=5052.343
         )
 
         # Played entire match
         player_ramos = home_team.get_player_by_id(5211)
-        assert minutes_played_map[player_ramos] == (
+        assert player_minutes_played_map[player_ramos] == (
             dataset.metadata.periods[0].duration
             + dataset.metadata.periods[1].duration
         )
+
+        # Teams played entire match
+        for item in minutes_played:
+            if item.key.team:
+                assert item.duration == (
+                    dataset.metadata.periods[0].duration
+                    + dataset.metadata.periods[1].duration
+                )
 
         # Check if total difference between start and end time equal minutes played
         for item in minutes_played:

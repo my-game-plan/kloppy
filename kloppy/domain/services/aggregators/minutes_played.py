@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import List, NamedTuple, Optional
 
@@ -5,16 +6,22 @@ from kloppy.domain import EventDataset, Player, Team, Time, PositionType
 from kloppy.domain.services.aggregators.aggregator import (
     EventDatasetAggregator,
 )
+from enum import Enum
+class BreakdownKey(str, Enum):
+    POSITION = "position"
+    POSSESSION_STATE = "possession_state"
 
-class MinutesPlayedKey(NamedTuple):
+@dataclass(frozen=True)
+class MinutesPlayedKey:
     player: Optional[Player] = None
     team: Optional[Team] = None
     position: Optional[PositionType] = None
 
-    def __new__(cls, player: Optional[Player] = None, team: Optional[Team] = None, position: Optional[PositionType] = None):
-        if (player is None and team is None) or (player is not None and team is not None):
+    def __post_init__(self):
+        if (self.player is None and self.team is None) or (self.player is not None and self.team is not None):
             raise ValueError("Either 'player' or 'team' must be provided, but not both.")
-        return super().__new__(cls, player, team, position)
+
+
 
 
 class MinutesPlayed(NamedTuple):
@@ -25,8 +32,8 @@ class MinutesPlayed(NamedTuple):
 
 
 class MinutesPlayedAggregator(EventDatasetAggregator):
-    def __init__(self, include_position: bool = False):
-        self.include_position = include_position
+    def __init__(self, breakdown_key: Optional[BreakdownKey] = None):
+        self.breakdown_key = breakdown_key
 
     def aggregate(
         self, dataset: EventDataset
@@ -34,28 +41,25 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
         items = []
 
         for team in dataset.metadata.teams:
-            for player in team.players:
-                if not self.include_position:
-                    _start_time = None
-                    end_time = None
-                    for (
-                        start_time,
-                        end_time,
-                        position,
-                    ) in player.positions.ranges():
-                        if not _start_time:
-                            _start_time = start_time
+            if self.breakdown_key == BreakdownKey.POSITION:
+                pass
+            elif self.breakdown_key == BreakdownKey.POSSESSION_STATE:
+                # To Do
+                pass
+            else:
+                _start_time = dataset.metadata.periods[0].start_time
+                _end_time = dataset.metadata.periods[1].end_time
 
-                    if _start_time:
-                        items.append(
-                            MinutesPlayed(
-                                key=MinutesPlayedKey(player=player),
-                                start_time=_start_time,
-                                end_time=end_time,
-                                duration=end_time - _start_time,
-                            )
-                        )
-                else:
+                items.append(
+                    MinutesPlayed(
+                        key=MinutesPlayedKey(team=team),
+                        start_time=_start_time,
+                        end_time=_end_time,
+                        duration=_end_time - _start_time,
+                    )
+                )
+            for player in team.players:
+                if self.breakdown_key == BreakdownKey.POSITION:
                     for (
                         start_time,
                         end_time,
@@ -67,6 +71,29 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                                 start_time=start_time,
                                 end_time=end_time,
                                 duration=end_time - start_time,
+                            )
+                        )
+                elif self.breakdown_key == BreakdownKey.POSSESSION_STATE:
+                    # To Do
+                    pass
+                else:
+                    _start_time = None
+                    end_time = None
+                    for (
+                            start_time,
+                            end_time,
+                            position,
+                    ) in player.positions.ranges():
+                        if not _start_time:
+                            _start_time = start_time
+
+                    if _start_time:
+                        items.append(
+                            MinutesPlayed(
+                                key=MinutesPlayedKey(player=player),
+                                start_time=_start_time,
+                                end_time=end_time,
+                                duration=end_time - _start_time,
                             )
                         )
 
