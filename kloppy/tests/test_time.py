@@ -156,7 +156,7 @@ class TestAbsTime:
         home_team, away_team = dataset.metadata.teams
 
         minutes_played_map = {
-            item.player: item.duration for item in minutes_played
+            item.key.player: item.duration for item in minutes_played if item.key.player
         }
 
         """

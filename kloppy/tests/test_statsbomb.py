@@ -1227,9 +1227,10 @@ class TestStatsBombTacticalShiftEvent:
         )
 
         for item in dataset.aggregate("minutes_played", include_position=True):
-            print(
-                f"{item.player} {item.player.player_id}- {item.start_time} - {item.end_time} - {item.duration} - {item.position}"
-            )
+            if item.key.player and item.key.position:
+                print(
+                    f"{item.key.player} {item.key.player.player_id}- {item.start_time} - {item.end_time} - {item.duration} - {item.key.position}"
+                )
 
         home_team, away_team = dataset.metadata.teams
         period1, period2 = dataset.metadata.periods

@@ -1,22 +1,24 @@
 from datetime import timedelta
-from typing import List, NamedTuple, Union
+from typing import List, NamedTuple, Optional
 
-from kloppy.domain import EventDataset, Player, Time, PositionType
+from kloppy.domain import EventDataset, Player, Team, Time, PositionType
 from kloppy.domain.services.aggregators.aggregator import (
     EventDatasetAggregator,
 )
 
+class MinutesPlayedKey(NamedTuple):
+    player: Optional[Player] = None
+    team: Optional[Team] = None
+    position: Optional[PositionType] = None
+
+    def __new__(cls, player: Optional[Player] = None, team: Optional[Team] = None, position: Optional[PositionType] = None):
+        if (player is None and team is None) or (player is not None and team is not None):
+            raise ValueError("Either 'player' or 'team' must be provided, but not both.")
+        return super().__new__(cls, player, team, position)
+
 
 class MinutesPlayed(NamedTuple):
-    player: Player
-    start_time: Time
-    end_time: Time
-    duration: timedelta
-
-
-class MinutesPlayedPerPosition(NamedTuple):
-    player: Player
-    position: PositionType
+    key: MinutesPlayedKey
     start_time: Time
     end_time: Time
     duration: timedelta
@@ -28,7 +30,7 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
 
     def aggregate(
         self, dataset: EventDataset
-    ) -> List[Union[MinutesPlayedPerPosition, MinutesPlayed]]:
+    ) -> List[MinutesPlayed]:
         items = []
 
         for team in dataset.metadata.teams:
@@ -47,7 +49,7 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                     if _start_time:
                         items.append(
                             MinutesPlayed(
-                                player=player,
+                                key=MinutesPlayedKey(player=player),
                                 start_time=_start_time,
                                 end_time=end_time,
                                 duration=end_time - _start_time,
@@ -60,9 +62,8 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                         position,
                     ) in player.positions.ranges():
                         items.append(
-                            MinutesPlayedPerPosition(
-                                player=player,
-                                position=position,
+                            MinutesPlayed(
+                                key=MinutesPlayedKey(player=player, position=position),
                                 start_time=start_time,
                                 end_time=end_time,
                                 duration=end_time - start_time,
