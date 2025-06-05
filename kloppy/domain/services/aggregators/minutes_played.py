@@ -32,6 +32,7 @@ class MinutesPlayedKey:
     player: Optional[Player] = None
     team: Optional[Team] = None
     position: Optional[PositionType] = None
+    possession_state: Optional[PossessionState] = None
 
     def __post_init__(self):
         if (self.player is None and self.team is None) or (self.player is not None and self.team is not None):
@@ -75,48 +76,65 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
     ) -> List[MinutesPlayed]:
         items = []
 
-        for team in dataset.metadata.teams:
-            if self.breakdown_key == BreakdownKey.POSITION:
-                pass # no breakdown by position for teams
-            elif self.breakdown_key == BreakdownKey.POSSESSION_STATE:
-                time_per_possession_state = {
-                    state: timedelta(0) for state in PossessionState
-                }
-                start_time = None
-                ball_owning_team = None
-                ball_state = None
-                period = None
-                for event in dataset.events:
-                    actual_event_ball_state = (
-                        BallState.DEAD
-                        if isinstance(event, EVENT_TYPES_CAUSING_DEAD_BALL) or
-                           (event.result and event.result.value == PassResult.OFFSIDE)
-                        else event.ball_state
+        if self.breakdown_key == BreakdownKey.POSITION:
+            pass  # no breakdown by position for teams
+        elif self.breakdown_key == BreakdownKey.POSSESSION_STATE:
+            first_team = dataset.metadata.teams[0]
+            time_per_possession_state = {
+                state: timedelta(0) for state in PossessionState
+            }
+            start_time = None
+            ball_owning_team = None
+            ball_state = None
+            period = None
+            for event in dataset.events:
+                actual_event_ball_state = (
+                    BallState.DEAD
+                    if isinstance(event, EVENT_TYPES_CAUSING_DEAD_BALL) or
+                       (event.result and event.result.value == PassResult.OFFSIDE)
+                    else event.ball_state
+                )
+                if event.period != period:
+                    self.finalize_period(period, start_time, ball_state, ball_owning_team, first_team,
+                                         time_per_possession_state)
+                    start_time = event.timestamp
+                    period = event.period
+                    ball_state = actual_event_ball_state
+                    ball_owning_team = event.ball_owning_team
+
+                if actual_event_ball_state != ball_state or event.ball_owning_team != ball_owning_team:
+                    possession_state = self.get_possession_state(ball_state, ball_owning_team, first_team)
+
+                    time_per_possession_state[possession_state] += event.timestamp - start_time
+
+                    start_time = event.timestamp
+                    ball_state = actual_event_ball_state
+                    ball_owning_team = event.ball_owning_team
+
+            # Handle the last event in the period
+            self.finalize_period(period, start_time, ball_state, ball_owning_team, first_team, time_per_possession_state)
+
+            for team in dataset.metadata.teams:
+                flip_possession = (team != first_team)
+                for state, duration in time_per_possession_state.items():
+                    possession_state = (
+                        PossessionState.OUT_OF_POSSESSION if flip_possession and state == PossessionState.IN_POSSESSION
+                        else PossessionState.IN_POSSESSION if flip_possession and state == PossessionState.OUT_OF_POSSESSION
+                        else state
                     )
-                    if event.period != period:
-                        self.finalize_period(period, start_time, ball_state, ball_owning_team, team, time_per_possession_state)
-                        start_time = event.timestamp
-                        period = event.period
-                        ball_state = actual_event_ball_state
-                        ball_owning_team = event.ball_owning_team
 
-                    if actual_event_ball_state != ball_state or event.ball_owning_team != ball_owning_team:
-                        possession_state = self.get_possession_state(ball_state, ball_owning_team, team)
-
-                        time_per_possession_state[possession_state] += event.timestamp - start_time
-
-                        start_time = event.timestamp
-                        ball_state = actual_event_ball_state
-                        ball_owning_team = event.ball_owning_team
-
-
-                # Handle the last event in the period
-                self.finalize_period(period, start_time, ball_state, ball_owning_team, team, time_per_possession_state)
-
-            else:
-                _start_time = dataset.metadata.periods[0].start_time
-                _end_time = dataset.metadata.periods[1].end_time
-
+                    items.append(
+                        MinutesPlayed(
+                            key=MinutesPlayedKey(team=team, possession_state=possession_state),
+                            start_time=dataset.metadata.periods[0].start_time,
+                            end_time=dataset.metadata.periods[1].end_time,
+                            duration=duration,
+                        )
+                    )
+        else:
+            _start_time = dataset.metadata.periods[0].start_time
+            _end_time = dataset.metadata.periods[1].end_time
+            for team in dataset.metadata.teams:
                 items.append(
                     MinutesPlayed(
                         key=MinutesPlayedKey(team=team),
@@ -125,6 +143,9 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                         duration=_end_time - _start_time,
                     )
                 )
+
+
+        for team in dataset.metadata.teams:
             for player in team.players:
                 if self.breakdown_key == BreakdownKey.POSITION:
                     for (
