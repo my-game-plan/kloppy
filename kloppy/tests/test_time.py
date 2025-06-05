@@ -219,14 +219,9 @@ class TestAbsTime:
                 0.001,
             )
     def test_statsbomb_minuted_played_per_posession_state(self, base_dir):
-        def __period_offset(period_id, dataset):
-            for period in dataset.metadata.periods:
-                if period.id == period_id - 1:
-                    return period.end_time.timestamp.total_seconds()
-                else:
-                    return 0
-
         dataset = statsbomb.load(
+            # 3788741
+            # 15986
             lineup_data=base_dir / "files/statsbomb_lineup.json",
             event_data=base_dir / "files/statsbomb_event.json",
         )
@@ -281,23 +276,31 @@ class TestAbsTime:
         assert sum(playtime_coutinho.values(), timedelta()) == timedelta(
             seconds=2852.053
         )
-        assert playtime_coutinho[PossessionState.IN_POSSESSION] == timedelta(seconds=1991.614)
-        assert playtime_coutinho[PossessionState.OUT_OF_POSSESSION] == timedelta(seconds=558.239)
-        assert playtime_coutinho[PossessionState.BALL_DEAD] == timedelta(seconds=302.2)
+        assert playtime_coutinho[PossessionState.IN_POSSESSION] == timedelta(seconds=1505.312)
+        assert playtime_coutinho[PossessionState.OUT_OF_POSSESSION] == timedelta(seconds=296.958)
+        assert playtime_coutinho[PossessionState.BALL_DEAD] == timedelta(seconds=1049.783)
 
 
         # Replaced in second half
         player_busquets = home_team.get_player_by_id(5203)
-        assert sum(player_minutes_played_map[player_busquets].values(), timedelta()) == timedelta(
+        playtime_busquets = player_minutes_played_map[player_busquets]
+        assert sum(playtime_busquets.values(), timedelta()) == timedelta(
             seconds=5052.343
         )
+        assert playtime_busquets[PossessionState.IN_POSSESSION] == timedelta(seconds=2917.724)
+        assert playtime_busquets[PossessionState.OUT_OF_POSSESSION] == timedelta(seconds=652.343)
+        assert playtime_busquets[PossessionState.BALL_DEAD] == timedelta(seconds=1482.276)
 
         # Played entire match
         player_ramos = home_team.get_player_by_id(5211)
-        assert sum(player_minutes_played_map[player_ramos].values(), timedelta()) == (
+        playtime_ramos = player_minutes_played_map[player_ramos]
+        assert sum(playtime_ramos.values(), timedelta()) == (
                 dataset.metadata.periods[0].duration
                 + dataset.metadata.periods[1].duration
         )
+        assert playtime_ramos[PossessionState.IN_POSSESSION] == timedelta(seconds=3020.965)
+        assert playtime_ramos[PossessionState.OUT_OF_POSSESSION] == timedelta(seconds=716.177)
+        assert playtime_ramos[PossessionState.BALL_DEAD] == timedelta(seconds=1820.178)
 
 
 
