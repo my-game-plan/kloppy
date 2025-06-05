@@ -2,9 +2,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import List, NamedTuple, Optional
 
-from kloppy.domain import EventDataset, Player, Team, Time, PositionType, BallState, BallOutEvent, FoulCommittedEvent, \
-    ShotEvent, ShotResult, PassResult, PassEvent, SubstitutionEvent, CardEvent, PlayerOnEvent, PlayerOffEvent, \
-    TakeOnEvent, TakeOnResult
+from kloppy.domain import EventDataset, Player, Team, Time, PositionType, BallState, FoulCommittedEvent, \
+     PassResult, SubstitutionEvent, CardEvent, PlayerOnEvent, PlayerOffEvent, Period
 from kloppy.domain.services.aggregators.aggregator import (
     EventDatasetAggregator,
 )
@@ -52,7 +51,7 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
     def __init__(self, breakdown_key: Optional[BreakdownKey] = None):
         self.breakdown_key = breakdown_key
 
-    def get_possession_state(self, ball_state, ball_owning_team, team):
+    def get_possession_state(self, ball_state: BallState, ball_owning_team: Team, team: Team):
         """Determine the possession state."""
         if ball_state == BallState.DEAD or ball_owning_team is None:
             return PossessionState.BALL_DEAD
@@ -62,13 +61,22 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
             else PossessionState.OUT_OF_POSSESSION
         )
 
-    def finalize_period(self, period, start_time, ball_state, ball_owning_team, team, time_per_possession_state):
+    def _flip_possession_state(self, state: PossessionState, flip: bool) -> PossessionState:
+        if flip:
+            if state == PossessionState.IN_POSSESSION:
+                return PossessionState.OUT_OF_POSSESSION
+            elif state == PossessionState.OUT_OF_POSSESSION:
+                return PossessionState.IN_POSSESSION
+        return state
+
+    def finalize_period(self, period: Period, start_time, ball_state: BallState, ball_owning_team: Team, team: Team, times_to_update: List[dict]):
         """Finalize the possession state for a period."""
         if not period:
             return
         possession_state = self.get_possession_state(ball_state, ball_owning_team, team)
         end_time = period.end_timestamp-period.start_timestamp
-        time_per_possession_state[possession_state] += end_time - start_time
+        for time_per_possession_state in times_to_update:
+            time_per_possession_state[possession_state] += end_time - start_time
 
 
     def aggregate(
@@ -77,16 +85,52 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
         items = []
 
         if self.breakdown_key == BreakdownKey.POSITION:
-            pass  # no breakdown by position for teams
+            for team in dataset.metadata.teams:
+                for player in team.players:
+                    for (
+                            start_timestamp,
+                            end_time,
+                            position,
+                    ) in player.positions.ranges():
+                        items.append(
+                            MinutesPlayed(
+                                key=MinutesPlayedKey(player=player, position=position),
+                                start_time=start_timestamp,
+                                end_time=end_time,
+                                duration=end_time - start_timestamp,
+                            )
+                        )
         elif self.breakdown_key == BreakdownKey.POSSESSION_STATE:
             first_team = dataset.metadata.teams[0]
+
+            players_start_end_times = {}
+            for team in dataset.metadata.teams:
+                for player in team.players:
+                    _start_time = None
+                    end_time = None
+                    for (
+                            start_timestamp,
+                            end_time,
+                            position,
+                    ) in player.positions.ranges():
+                        if not _start_time:
+                            _start_time = start_timestamp
+
+                    if _start_time:
+                        flip_possession_state = (team != first_team)
+                        players_start_end_times[player] = (_start_time,end_time,flip_possession_state)
+
+
             time_per_possession_state = {
                 state: timedelta(0) for state in PossessionState
             }
-            start_time = None
-            ball_owning_team = None
-            ball_state = None
-            period = None
+            time_per_player = {
+                player: {state: timedelta(0) for state in PossessionState} for player in players_start_end_times.keys()
+            }
+            start_timestamp: Optional[timedelta] = None
+            ball_owning_team: Optional[Team] = None
+            ball_state: Optional[BallState] = None
+            period: Optional[Period] = None
             for event in dataset.events:
                 actual_event_ball_state = (
                     BallState.DEAD
@@ -95,33 +139,42 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                     else event.ball_state
                 )
                 if event.period != period:
-                    self.finalize_period(period, start_time, ball_state, ball_owning_team, first_team,
-                                         time_per_possession_state)
-                    start_time = event.timestamp
+
+                    times_to_update = [time_per_possession_state]
+                    for player, (start_player_time, end_player_time, _) in players_start_end_times.items():
+                        if start_player_time <= event.time and end_player_time >= event.time:
+                            times_to_update.append(time_per_player[player])
+                    self.finalize_period(period, start_timestamp, ball_state, ball_owning_team, first_team, times_to_update)
+                    start_timestamp = event.timestamp
                     period = event.period
                     ball_state = actual_event_ball_state
                     ball_owning_team = event.ball_owning_team
 
                 if actual_event_ball_state != ball_state or event.ball_owning_team != ball_owning_team:
+                    times_to_update = [time_per_possession_state]
+                    for player, (start_player_time, end_player_time, _) in players_start_end_times.items():
+                        if start_player_time <= event.time and end_player_time >= event.time:
+                            times_to_update.append(time_per_player[player])
+
                     possession_state = self.get_possession_state(ball_state, ball_owning_team, first_team)
+                    for time in times_to_update:
+                        time[possession_state] += event.timestamp - start_timestamp
 
-                    time_per_possession_state[possession_state] += event.timestamp - start_time
-
-                    start_time = event.timestamp
+                    start_timestamp = event.timestamp
                     ball_state = actual_event_ball_state
                     ball_owning_team = event.ball_owning_team
 
             # Handle the last event in the period
-            self.finalize_period(period, start_time, ball_state, ball_owning_team, first_team, time_per_possession_state)
+            times_to_update = [time_per_possession_state]
+            for player, (start_player_time, end_player_time, _) in players_start_end_times.items():
+                if start_player_time <= period.end_time and end_player_time >= period.end_time:
+                    times_to_update.append(time_per_player[player])
+            self.finalize_period(period, start_timestamp, ball_state, ball_owning_team, first_team, times_to_update)
 
             for team in dataset.metadata.teams:
                 flip_possession = (team != first_team)
                 for state, duration in time_per_possession_state.items():
-                    possession_state = (
-                        PossessionState.OUT_OF_POSSESSION if flip_possession and state == PossessionState.IN_POSSESSION
-                        else PossessionState.IN_POSSESSION if flip_possession and state == PossessionState.OUT_OF_POSSESSION
-                        else state
-                    )
+                    possession_state = self._flip_possession_state(state, flip_possession)
 
                     items.append(
                         MinutesPlayed(
@@ -131,6 +184,18 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                             duration=duration,
                         )
                     )
+                for player in team.players:
+                    if player in time_per_player:
+                        for state, duration in time_per_player[player].items():
+                            possession_state = self._flip_possession_state(state, flip_possession)
+                            items.append(
+                                MinutesPlayed(
+                                    key=MinutesPlayedKey(player=player, possession_state=possession_state),
+                                    start_time=dataset.metadata.periods[0].start_time,
+                                    end_time=dataset.metadata.periods[1].end_time,
+                                    duration=duration,
+                                )
+                            )
         else:
             _start_time = dataset.metadata.periods[0].start_time
             _end_time = dataset.metadata.periods[1].end_time
@@ -143,37 +208,16 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                         duration=_end_time - _start_time,
                     )
                 )
-
-
-        for team in dataset.metadata.teams:
-            for player in team.players:
-                if self.breakdown_key == BreakdownKey.POSITION:
-                    for (
-                        start_time,
-                        end_time,
-                        position,
-                    ) in player.positions.ranges():
-                        items.append(
-                            MinutesPlayed(
-                                key=MinutesPlayedKey(player=player, position=position),
-                                start_time=start_time,
-                                end_time=end_time,
-                                duration=end_time - start_time,
-                            )
-                        )
-                elif self.breakdown_key == BreakdownKey.POSSESSION_STATE:
-                    # To Do
-                    pass
-                else:
+                for player in team.players:
                     _start_time = None
                     end_time = None
                     for (
-                            start_time,
+                            start_timestamp,
                             end_time,
                             position,
                     ) in player.positions.ranges():
                         if not _start_time:
-                            _start_time = start_time
+                            _start_time = start_timestamp
 
                     if _start_time:
                         items.append(
