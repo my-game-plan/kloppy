@@ -5,6 +5,7 @@ import pytest
 
 from kloppy import statsbomb
 from kloppy.domain import Time, Period, TimeContainer
+from kloppy.domain.services.aggregators.minutes_played import BreakdownKey, PossessionState
 
 
 @pytest.fixture
@@ -217,6 +218,87 @@ class TestAbsTime:
                 ),
                 0.001,
             )
+    def test_statsbomb_minuted_played_per_posession_state(self, base_dir):
+        def __period_offset(period_id, dataset):
+            for period in dataset.metadata.periods:
+                if period.id == period_id - 1:
+                    return period.end_time.timestamp.total_seconds()
+                else:
+                    return 0
+
+        dataset = statsbomb.load(
+            lineup_data=base_dir / "files/statsbomb_lineup.json",
+            event_data=base_dir / "files/statsbomb_event.json",
+        )
+
+        minutes_played_per_possession_state = dataset.aggregate("minutes_played", breakdown_key= BreakdownKey.POSSESSION_STATE)
+
+
+        player_minutes_played_map = {}
+        team_minutes_played_map = {}
+        for item in minutes_played_per_possession_state:
+            if item.key.team:
+                team = item.key.team
+                if team not in team_minutes_played_map:
+                    team_minutes_played_map[team] = {}
+                team_minutes_played_map[team][item.key.possession_state] = item.duration
+            else:
+                player = item.key.player
+                possession_state = item.key.possession_state
+                duration = item.duration
+
+                if player and possession_state:
+                    if player not in player_minutes_played_map:
+                        player_minutes_played_map[player] = {}
+                    player_minutes_played_map[player][possession_state] = duration
+
+
+        
+
+        # Teams played entire match
+        for item in team_minutes_played_map.values():
+            total_duration = sum(item.values(), timedelta())
+            assert total_duration == (
+                        dataset.metadata.periods[0].duration
+                        + dataset.metadata.periods[1].duration
+                )
+
+        home_team, away_team = dataset.metadata.teams
+
+        """
+        3109 - 0:00:00.000000 - Malcom
+        3501 - 0:47:32.053000 - Coutinho
+        5203 - 1:24:12.343000 - Busquets
+        5211 - 1:32:37.320000 - Ramos
+        """
+        # Didn't play
+        player_malcon = home_team.get_player_by_id(3109)
+        assert player_malcon not in player_minutes_played_map
+
+        # Started second half
+        player_coutinho = home_team.get_player_by_id(3501)
+        playtime_coutinho = player_minutes_played_map[player_coutinho]
+        assert sum(playtime_coutinho.values(), timedelta()) == timedelta(
+            seconds=2852.053
+        )
+        assert playtime_coutinho[PossessionState.IN_POSSESSION] == timedelta(seconds=1999.021)
+        assert playtime_coutinho[PossessionState.OUT_OF_POSSESSION] == timedelta(seconds=559.934)
+        assert playtime_coutinho[PossessionState.BALL_DEAD] == timedelta(seconds=293.098)
+
+
+        # Replaced in second half
+        player_busquets = home_team.get_player_by_id(5203)
+        assert sum(player_minutes_played_map[player_busquets].values(), timedelta()) == timedelta(
+            seconds=5052.343
+        )
+
+        # Played entire match
+        player_ramos = home_team.get_player_by_id(5211)
+        assert sum(player_minutes_played_map[player_ramos].values(), timedelta()) == (
+                dataset.metadata.periods[0].duration
+                + dataset.metadata.periods[1].duration
+        )
+
 
 
 class TestAbsTimeContainer:
