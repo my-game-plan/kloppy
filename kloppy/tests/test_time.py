@@ -218,7 +218,7 @@ class TestAbsTime:
                 ),
                 0.001,
             )
-    def test_statsbomb_minuted_played_per_posession_state(self, base_dir):
+    def test_statsbomb_minutes_played_per_possession_state(self, base_dir):
         dataset = statsbomb.load(
             # 3788741
             # 15986
