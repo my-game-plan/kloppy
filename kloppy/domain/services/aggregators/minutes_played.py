@@ -18,12 +18,16 @@ class PossessionState(Enum):
     BALL_DEAD = 'ball-dead'
 
 
-EVENT_TYPES_CAUSING_DEAD_BALL = (
+EVENTS_CAUSING_DEAD_BALL = (
     FoulCommittedEvent,
     SubstitutionEvent,
     CardEvent,
     PlayerOnEvent,
     PlayerOffEvent,
+)
+
+RESULTS_CAUSING_DEAD_BALL = (
+    PassResult.OFFSIDE,
 )
 
 @dataclass(frozen=True)
@@ -132,8 +136,8 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
             for event in dataset.events:
                 actual_event_ball_state = (
                     BallState.DEAD
-                    if isinstance(event, EVENT_TYPES_CAUSING_DEAD_BALL) or
-                       (event.result and event.result.value == PassResult.OFFSIDE)
+                    if isinstance(event, EVENTS_CAUSING_DEAD_BALL) or
+                       (event.result in RESULTS_CAUSING_DEAD_BALL)
                     else event.ball_state
                 )
                 if event.period != period:

@@ -281,9 +281,9 @@ class TestAbsTime:
         assert sum(playtime_coutinho.values(), timedelta()) == timedelta(
             seconds=2852.053
         )
-        assert playtime_coutinho[PossessionState.IN_POSSESSION] == timedelta(seconds=1999.021)
-        assert playtime_coutinho[PossessionState.OUT_OF_POSSESSION] == timedelta(seconds=559.934)
-        assert playtime_coutinho[PossessionState.BALL_DEAD] == timedelta(seconds=293.098)
+        assert playtime_coutinho[PossessionState.IN_POSSESSION] == timedelta(seconds=1991.614)
+        assert playtime_coutinho[PossessionState.OUT_OF_POSSESSION] == timedelta(seconds=558.239)
+        assert playtime_coutinho[PossessionState.BALL_DEAD] == timedelta(seconds=302.2)
 
 
         # Replaced in second half
