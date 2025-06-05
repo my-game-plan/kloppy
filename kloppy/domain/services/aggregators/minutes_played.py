@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import List, NamedTuple, Optional
+from enum import Enum
 
 from kloppy.domain import EventDataset, Player, Team, Time, PositionType, BallState, FoulCommittedEvent, \
     PassResult, SubstitutionEvent, CardEvent, PlayerOnEvent, PlayerOffEvent, Period, GenericEvent, ShotResult
 from kloppy.domain.services.aggregators.aggregator import (
     EventDatasetAggregator,
 )
-from enum import Enum
 class BreakdownKey(Enum):
     POSITION = "position"
     POSSESSION_STATE = "possession_state"
