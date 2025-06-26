@@ -586,20 +586,15 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
     @staticmethod
     def create_periods(raw_events: Dict) -> List[Period]:
         periods = []
-        for period_id, marker, period_start_action_id in zip(
-            [1, 2],
-            ["first_half_markers", "second_half_markers"],
-            [FIRST_HALF, SECOND_HALF],
+        for idx, marker in enumerate(
+            ["first_half_markers", "second_half_markers"]
         ):
             half_events = raw_events[marker]
-            period_start_event = next(
-                e
-                for e in half_events
-                if e["action_id"] == period_start_action_id
+            start_timestamp = (
+                timedelta(0) if not periods else periods[-1].end_timestamp
             )
-            start_timestamp = timedelta(seconds=period_start_event["second"])
             period = Period(
-                id=period_id,
+                id=idx + 1,
                 start_timestamp=start_timestamp,
                 end_timestamp=timedelta(seconds=(half_events[-1]["second"])),
             )
@@ -665,8 +660,11 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                         coordinates = None
                     generic_event_kwargs = dict(
                         period=period,
-                        timestamp=timedelta(seconds=(raw_event["second"]))
-                        - period.start_timestamp,
+                        timestamp=timedelta(seconds=raw_event["second"])
+                        if period.id == 1
+                        else timedelta(
+                            seconds=(raw_event["second"] - 45 * 60)
+                        ),
                         ball_owning_team=possession_team,
                         ball_state=None,
                         event_id=str(raw_event["id"]),
