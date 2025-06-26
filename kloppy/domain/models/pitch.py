@@ -699,3 +699,24 @@ class WyscoutPitchDimensions(PitchDimensions):
     corner_radius: float = 0.97  # inferred
     penalty_spot_distance: float = 10.0
     penalty_arc_radius: float = 7.74  # inferred
+
+
+@dataclass
+class KoraStatsPitchDimensions(PitchDimensions):
+    """The pitch dimensions used by KoraStats."""
+
+    x_dim: Dimension = Dimension(0, 100)
+    y_dim: Dimension = Dimension(0, 100)
+    standardized: bool = True
+    unit: Unit = Unit.NORMED
+
+    goal_width: float = 10.0
+    goal_height: Optional[float] = None
+    six_yard_width: float = 24.0
+    six_yard_length: float = 5.0
+    penalty_area_width: float = 54.0
+    penalty_area_length: float = 15.0
+    circle_radius: float = 8.84  # copied from above
+    corner_radius: float = 0.97  # copied from above
+    penalty_spot_distance: float = 10.0
+    penalty_arc_radius: float = 7.74  # copied from above
