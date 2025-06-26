@@ -59,6 +59,7 @@ from .pitch import (
     PitchDimensions,
     Unit,
     WyscoutPitchDimensions,
+    KoraStatsPitchDimensions,
 )
 from .time import Period, Time, TimeContainer
 
@@ -134,6 +135,7 @@ class Provider(Enum):
     HAWKEYE = "hawkeye"
     SPORTVU = "sportvu"
     SIGNALITY = "signality"
+    KORASTATS = "korastats"
     OTHER = "other"
 
     def __str__(self):
@@ -1337,6 +1339,33 @@ class HawkEyeCoordinateSystem(ProviderCoordinateSystem):
             )
 
 
+class KoraStatsCoordinateSystem(ProviderCoordinateSystem):
+    """
+    KoraSports coordinate system.
+
+    Uses a normalized pitch with the origin at the top left and the y-axis
+    oriented from top to bottom. The coordinates range from 0 to 100.
+    """
+
+    @property
+    def provider(self) -> Provider:
+        return Provider.KORASTATS
+
+    @property
+    def origin(self) -> Origin:
+        return Origin.TOP_LEFT
+
+    @property
+    def vertical_orientation(self) -> VerticalOrientation:
+        return VerticalOrientation.TOP_TO_BOTTOM
+
+    @property
+    def pitch_dimensions(self) -> PitchDimensions:
+        return KoraStatsPitchDimensions(
+            pitch_length=self._pitch_length, pitch_width=self._pitch_width
+        )
+
+
 class DatasetType(Enum):
     """
     Dataset types.
@@ -1390,6 +1419,7 @@ def build_coordinate_system(
         Provider.HAWKEYE: HawkEyeCoordinateSystem,
         Provider.SPORTVU: SportVUCoordinateSystem,
         Provider.SIGNALITY: SignalityCoordinateSystem,
+        Provider.KORASTATS: KoraStatsCoordinateSystem,
     }
 
     if provider in coordinate_systems:
