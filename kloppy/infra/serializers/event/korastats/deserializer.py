@@ -37,11 +37,16 @@ from kloppy.domain import (
     Event,
     PassQualifier,
     PassType,
+    PassEvent,
+    ShotEvent,
+    PitchDimensions,
+    CoordinateSystem,
 )
 from kloppy.exceptions import DeserializationError
 from kloppy.infra.serializers.event.deserializer import EventDataDeserializer
 from kloppy.infra.serializers.event.korastats.specification import (
     create_korastats_events,
+    event_decoder,
 )
 from kloppy.utils import performance_logging
 
@@ -103,22 +108,23 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
         # Create events
         with performance_logging("parse events", logger=logger):
             events = []
-            korastats_events = create_korastats_events(raw_events)
-            korastats_events_list = list(korastats_events.values())
-            for idx, korastats_event in enumerate(korastats_events_list):
+            for ix, raw_event in enumerate(raw_events):
+                prior_event = raw_events[ix - 1] if ix > 0 else None
                 next_event = (
-                    korastats_events_list[idx + 1]
-                    if idx + 1 < len(korastats_events_list)
-                    else None
+                    raw_events[ix + 1] if ix < len(raw_events) - 1 else None
                 )
-                new_events = korastats_event.set_refs(
-                    periods, teams, korastats_events
-                ).deserialize(self.event_factory, teams, next_event=next_event)
-                for event in new_events:
-                    if self.should_include_event(event):
-                        # Transform event to the coordinate system
-                        event = self.transformer.transform_event(event)
-                        events.append(event)
+                korastats_event = event_decoder(raw_event)
+                if korastats_event:
+                    kloppy_events = korastats_event.set_refs(
+                        periods, teams
+                    ).deserialize(
+                        self.event_factory, teams, prior_event, next_event
+                    )
+                    for event in kloppy_events:
+                        if self.should_include_event(event):
+                            # Transform event to the coordinate system
+                            event = self.transformer.transform_event(event)
+                            events.append(event)
 
         metadata = Metadata(
             teams=teams,
@@ -136,7 +142,6 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
     @staticmethod
     def create_teams_and_players(metadata: Dict) -> List[Team]:
         def create_team(team_info: Dict, ground: Ground) -> Team:
-
             starting_formation = FormationType.UNKNOWN
 
             team = Team(
@@ -153,11 +158,13 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
                 ]
                 players.append(
                     Player(
-                        player_id=player_info["id"],
+                        player_id=str(player_info["id"]),
                         team=team,
                         name=player_info["name"],
                         jersey_no=player_info["shirt_number"],
-                        starting_position=starting_position,
+                        starting_position=starting_position
+                        if player_info["lineup"]
+                        else None,
                         starting=True if player_info["lineup"] else False,
                     )
                 )
