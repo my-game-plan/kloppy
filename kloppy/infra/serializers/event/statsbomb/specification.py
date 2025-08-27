@@ -738,6 +738,25 @@ class INTERCEPTION(EVENT):
         return []
 
 
+class BLOCK(EVENT):
+    """StatsBomb 6/Block event."""
+
+    def _create_events(
+        self, event_factory: EventFactory, **generic_event_kwargs
+    ) -> List[Event]:
+        block_dict = self.raw_event.get("block", {})
+        shot_block = True if block_dict.get("save_block", False) else False
+
+        block_event = event_factory.build_block_event(
+            result=None,
+            qualifiers=None,
+            shot_block=shot_block,
+            **generic_event_kwargs,
+        )
+
+        return [block_event]
+
+
 class OWN_GOAL_AGAINST(EVENT):
     """StatsBomb 20/Own goal against event."""
 
@@ -1470,6 +1489,7 @@ def event_decoder(raw_event: Dict) -> Union[EVENT, Dict]:
         EVENT_TYPE.BALL_RECEIPT: BALL_RECEIPT,
         EVENT_TYPE.SHOT: SHOT,
         EVENT_TYPE.INTERCEPTION: INTERCEPTION,
+        EVENT_TYPE.BLOCK: BLOCK,
         EVENT_TYPE.OWN_GOAL_FOR: OWN_GOAL_FOR,
         EVENT_TYPE.OWN_GOAL_AGAINST: OWN_GOAL_AGAINST,
         EVENT_TYPE.CLEARANCE: CLEARANCE,

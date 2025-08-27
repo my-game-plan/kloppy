@@ -699,6 +699,14 @@ class TestStatsBombPassEvent:
             == SetPieceType.KICK_OFF
         )
 
+    def test_block(self, dataset: EventDataset):
+        """It should split interception passes into two events"""
+        block_events = dataset.find_all("block")
+        assert len(block_events) == 37
+
+        block_shot_events = [e for e in block_events if e.shot_block is True]
+        assert len(block_shot_events) == 0
+
     def test_interception(self, dataset: EventDataset):
         """It should split interception passes into two events"""
         interception = dataset.get_event_by_id(

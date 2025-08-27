@@ -904,10 +904,7 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                             **duel_event_kwargs,
                             **generic_event_kwargs,
                         )
-                    elif raw_event.type_id in (
-                        EVENT_TYPE_INTERCEPTION,
-                        EVENT_TYPE_BLOCKED_PASS,
-                    ):
+                    elif raw_event.type_id == EVENT_TYPE_INTERCEPTION:
                         interception_event_kwargs = _parse_interception(
                             raw_event, team, next_event
                         )
@@ -915,14 +912,21 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                             **interception_event_kwargs,
                             **generic_event_kwargs,
                         )
+                    elif raw_event.type_id == EVENT_TYPE_BLOCKED_PASS:
+                        event = self.event_factory.build_block_event(
+                            result=None,
+                            qualifiers=None,
+                            shot_block=False,
+                            **generic_event_kwargs,
+                        )
                     elif raw_event.type_id in KEEPER_EVENTS:
                         # Qualifier 94 means the "save" event is a shot block by a defender
                         if 94 in raw_event.qualifiers:
-                            event = self.event_factory.build_generic(
+                            event = self.event_factory.build_block_event(
                                 **generic_event_kwargs,
                                 result=None,
                                 qualifiers=None,
-                                event_name="block",
+                                shot_block=True,
                             )
                         else:
                             goalkeeper_event_kwargs = _parse_goalkeeper_events(

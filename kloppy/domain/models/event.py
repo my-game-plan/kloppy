@@ -266,6 +266,7 @@ class EventType(Enum):
     PRESSURE = "PRESSURE"
     FORMATION_CHANGE = "FORMATION_CHANGE"
     BALL_RECEIPT = "BALL_RECEIPT"
+    BLOCK = "BLOCK"
 
     def __repr__(self):
         return self.value
@@ -1086,6 +1087,23 @@ class BallReceiptEvent(Event):
     event_type: EventType = EventType.BALL_RECEIPT
     event_name: str = "ball_receipt"
     result: BallReceiptResult
+
+
+@dataclass(repr=False)
+@docstring_inherit_attributes(Event)
+class BlockEvent(Event):
+    """
+    BlockEvent
+
+    Attributes:
+        event_type (EventType): `EventType.BLOCK` (See [`EventType`][kloppy.domain.models.event.EventType])
+        event_name (str): `"block"`
+    """
+
+    event_type: EventType = EventType.BLOCK
+    event_name: str = "block"
+
+    shot_block: bool = False
 
 
 @dataclass(repr=False)

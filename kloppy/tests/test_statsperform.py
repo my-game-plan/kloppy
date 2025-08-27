@@ -264,6 +264,17 @@ class TestStatsPerformEvent:
         deflected_pass = event_dataset.get_event_by_id("2328596237")
         assert deflected_pass.receiver_player is None
 
+    def test_interception_events(self, event_dataset):
+        interception_events = event_dataset.find_all("interception")
+        assert len(interception_events) == 15
+
+    def test_block_events(self, event_dataset):
+        block_events = event_dataset.find_all("block")
+        assert len(block_events) == 11
+
+        shot_block_events = [e for e in block_events if e.shot_block is True]
+        assert len(shot_block_events) == 6
+
 
 class TestStatsPerformTracking:
     """Tests related to deserializing tracking data delivered by StatsPerform."""
