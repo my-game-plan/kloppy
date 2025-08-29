@@ -5,6 +5,8 @@ import pytest
 
 from kloppy import statsperform
 from kloppy.domain import (
+    BlockQualifier,
+    BlockType,
     DatasetFlag,
     EventDataset,
     OptaCoordinateSystem,
@@ -17,6 +19,7 @@ from kloppy.domain import (
     SportVUCoordinateSystem,
     Time,
     TrackingDataset,
+    EventType,
 )
 
 
@@ -420,3 +423,68 @@ class TestStatsPerformTracking:
                 tracking_system="sportvu",
                 coordinates="kloppy",
             )
+
+
+class TestStatsPerformBlockEvent:
+    """Tests related to deserializing block events"""
+
+    def test_deserialize_all(self, event_dataset: EventDataset):
+        """It should deserialize all block events"""
+        events = event_dataset.find_all("block")
+        assert len(events) == 11
+
+    def test_attributes(self, event_dataset: EventDataset):
+        """Verify specific attributes of blocks"""
+        block_events = event_dataset.find_all("block")
+        first_block = block_events[0]
+
+        # A block has no result
+        assert first_block.result is None
+        # A block should have a block type qualifier
+        assert first_block.get_qualifier_value(BlockQualifier) in [
+            BlockType.SHOT,
+            BlockType.PASS,
+        ]
+
+    def test_shot_block_vs_pass_block_counts(
+        self, event_dataset: EventDataset
+    ):
+        """Test that the correct number of shot blocks and pass blocks are identified"""
+        block_events = event_dataset.find_all("block")
+
+        # Separate shot blocks from pass blocks using qualifier
+        shot_blocks = [
+            b
+            for b in block_events
+            if b.get_qualifier_value(BlockQualifier) == BlockType.SHOT
+        ]
+        pass_blocks = [
+            b
+            for b in block_events
+            if b.get_qualifier_value(BlockQualifier) == BlockType.PASS
+        ]
+
+        # Verify the counts match our expected values
+        assert (
+            len(shot_blocks) == 6
+        ), f"Expected 6 shot blocks, got {len(shot_blocks)}"
+        assert (
+            len(pass_blocks) == 5
+        ), f"Expected 5 pass blocks, got {len(pass_blocks)}"
+        assert (
+            len(block_events) == 11
+        ), f"Expected 11 total block events, got {len(block_events)}"
+
+        # Verify that all shot blocks have block_type=SHOT
+        for shot_block in shot_blocks:
+            assert (
+                shot_block.get_qualifier_value(BlockQualifier)
+                == BlockType.SHOT
+            ), f"Shot block event {shot_block.event_id} has block_type=PASS"
+
+        # Verify that all pass blocks have block_type=PASS
+        for pass_block in pass_blocks:
+            assert (
+                pass_block.get_qualifier_value(BlockQualifier)
+                == BlockType.PASS
+            ), f"Pass block event {pass_block.event_id} has block_type=SHOT"
