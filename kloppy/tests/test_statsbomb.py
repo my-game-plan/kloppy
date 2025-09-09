@@ -40,6 +40,8 @@ from kloppy.domain import (
 )
 from kloppy.domain.models import PositionType
 from kloppy.domain.models.event import (
+    BlockQualifier,
+    BlockType,
     CardType,
     CounterAttackQualifier,
     EventType,
@@ -879,6 +881,57 @@ class TestStatsBombClearanceEvent:
             DuelType.AERIAL,
         ]
         assert duel.result == DuelResult.WON
+
+
+class TestStatsBombBlockEvent:
+    """Tests related to deserializing 6/Block events"""
+
+    def test_deserialize_all(self, dataset: EventDataset):
+        """It should deserialize all block events"""
+        events = dataset.find_all("block")
+        assert len(events) == 37
+
+    def test_attributes(self, dataset: EventDataset):
+        """Verify specific attributes of blocks"""
+        block = dataset.get_event_by_id("308ef2a5-f649-473d-8230-6ac20ccd0b4a")
+        # A block has no result
+        assert block.result is None
+        # A block should have a block type qualifier
+        assert block.get_qualifier_value(BlockQualifier) == BlockType.PASS
+
+    def test_shot_block_vs_pass_block_counts(self, dataset: EventDataset):
+        """Test that the correct number of shot blocks and pass blocks are identified"""
+        block_events = dataset.find_all("block")
+
+        # Separate shot blocks from pass blocks using qualifier
+        shot_blocks = [
+            b
+            for b in block_events
+            if b.get_qualifier_value(BlockQualifier) == BlockType.SHOT
+        ]
+        pass_blocks = [
+            b
+            for b in block_events
+            if b.get_qualifier_value(BlockQualifier) == BlockType.PASS
+        ]
+
+        # For StatsBomb dataset, all blocks should be pass blocks (no shot blocks)
+        assert (
+            len(shot_blocks) == 0
+        ), f"Expected 0 shot blocks, got {len(shot_blocks)}"
+        assert (
+            len(pass_blocks) == 37
+        ), f"Expected 37 pass blocks, got {len(pass_blocks)}"
+        assert (
+            len(block_events) == 37
+        ), f"Expected 37 total block events, got {len(block_events)}"
+
+        # Verify that all pass blocks have block_type=PASS
+        for pass_block in pass_blocks:
+            assert (
+                pass_block.get_qualifier_value(BlockQualifier)
+                == BlockType.PASS
+            ), f"Pass block event {pass_block.event_id} has block_type=SHOT"
 
 
 class TestStatsBombMiscontrolEvent:
