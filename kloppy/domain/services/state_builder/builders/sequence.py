@@ -91,7 +91,6 @@ def should_open_sequence(
         if (
                 all(isinstance(e, DuelEvent) for e in (event, next_event))
                 and next_event.result == DuelResult.LOST
-                and next_event.event_id in event.related_event_ids
         ):
             next_event = next_event.next_record
         can_open_sequence = next_event.team == event.team and is_possessing_event(next_event)
