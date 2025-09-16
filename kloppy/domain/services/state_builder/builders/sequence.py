@@ -87,10 +87,14 @@ def should_open_sequence(
     elif (
         is_ball_winning_defensive_action(event)
         and next_event is not None
-        and next_event.team == event.team
-        and is_possessing_event(next_event)
     ):
-        can_open_sequence = True
+        if (
+                all(isinstance(e, DuelEvent) for e in (event, next_event))
+                and next_event.result == DuelResult.LOST
+                and next_event.event_id in event.related_event_ids
+        ):
+            next_event = next_event.next_record
+        can_open_sequence = next_event.team == event.team and is_possessing_event(next_event)
     return can_open_sequence and (
         state is None
         or state.team != event.team
