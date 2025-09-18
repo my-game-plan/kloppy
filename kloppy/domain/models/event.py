@@ -99,17 +99,6 @@ class PassResult(ResultType):
         return self == self.COMPLETE
 
 
-class BlockType(Enum):
-    """
-    BlockType
-
-    Attributes:
-        SHOT (BlockType): Block was blocking a shot
-        PASS (BlockType): Block was blocking a pass
-    """
-
-    SHOT = "SHOT"
-    PASS = "PASS"
 
 
 class TakeOnResult(ResultType):
@@ -256,7 +245,6 @@ class EventType(Enum):
         PRESSURE (EventType):
         FORMATION_CHANGE (EventType):
         BALL_RECEIPT (EventType):
-        BLOCK (EventType):
     """
 
     GENERIC = "generic"
@@ -280,7 +268,6 @@ class EventType(Enum):
     PRESSURE = "PRESSURE"
     FORMATION_CHANGE = "FORMATION_CHANGE"
     BALL_RECEIPT = "BALL_RECEIPT"
-    BLOCK = "BLOCK"
 
     def __repr__(self):
         return self.value
@@ -339,6 +326,17 @@ class SetPieceType(Enum):
     PENALTY = "PENALTY"
     KICK_OFF = "KICK_OFF"
 
+class InterceptionType(Enum):
+    """
+    InterceptionType
+
+    Attributes:
+        SHOT_BLOCK (InterceptionType): Interception that blocked a shot
+        PASS_BLOCK (InterceptionType): Interception that blocked a pass
+    """
+
+    SHOT_BLOCK = "SHOT_BLOCK"
+    PASS_BLOCK = "PASS_BLOCK"
 
 @dataclass
 class SetPieceQualifier(EnumQualifier):
@@ -538,16 +536,16 @@ class UnderPressureQualifier(BoolQualifier):
 
 
 @dataclass
-class BlockQualifier(EnumQualifier):
+class InterceptionQualifier(EnumQualifier):
     """
-    Indicates the type of block event.
+    Indicates the interception subtype.
 
     Attributes:
-        name (str): `"block"`
-        value (BlockType): The type of block (SHOT or PASS).
+        name (str): `"interception"`
+        value (InterceptionType): The interception subtype (SHOT_BLOCK or PASS_BLOCK).
     """
 
-
+    value: InterceptionType
 @dataclass
 @docstring_inherit_attributes(DataRecord)
 class Event(DataRecord, ABC):
@@ -904,21 +902,6 @@ class ClearanceEvent(Event):
 
     event_type: EventType = EventType.CLEARANCE
     event_name: str = "clearance"
-
-
-@dataclass(repr=False)
-@docstring_inherit_attributes(Event)
-class BlockEvent(Event):
-    """
-    BlockEvent
-
-    Attributes:
-        event_type (EventType): `EventType.BLOCK` (See [`EventType`][kloppy.domain.models.event.EventType])
-        event_name (str): `"block"`
-    """
-
-    event_type: EventType = EventType.BLOCK
-    event_name: str = "block"
 
 
 @dataclass(repr=False)
@@ -1323,7 +1306,7 @@ __all__ = [
     "EventType",
     "ShotResult",
     "PassResult",
-    "BlockType",
+    "InterceptionType",
     "TakeOnResult",
     "CarryResult",
     "Event",
@@ -1333,7 +1316,6 @@ __all__ = [
     "TakeOnEvent",
     "CarryEvent",
     "ClearanceEvent",
-    "BlockEvent",
     "InterceptionEvent",
     "InterceptionResult",
     "SubstitutionEvent",
@@ -1362,7 +1344,7 @@ __all__ = [
     "GoalkeeperActionType",
     "CounterAttackQualifier",
     "UnderPressureQualifier",
-    "BlockQualifier",
+    "InterceptionQualifier",
     "DuelEvent",
     "DuelType",
     "DuelQualifier",

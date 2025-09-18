@@ -4,8 +4,6 @@ from typing import Dict, List, NamedTuple, Optional, Union
 
 from kloppy.domain import (
     BallState,
-    BlockQualifier,
-    BlockType,
     BodyPart,
     BodyPartQualifier,
     CardQualifier,
@@ -22,6 +20,8 @@ from kloppy.domain import (
     GoalkeeperActionType,
     GoalkeeperQualifier,
     InterceptionResult,
+    InterceptionQualifier,
+    InterceptionType,
     PassQualifier,
     PassResult,
     PassType,
@@ -783,7 +783,7 @@ class CLEARANCE(EVENT):
 
 
 class BLOCK(EVENT):
-    """StatsBomb 6/Block event."""
+    """StatsBomb 6/Block event -> Interception with subtype qualifier."""
 
     def _create_events(
         self, event_factory: EventFactory, **generic_event_kwargs
@@ -791,24 +791,24 @@ class BLOCK(EVENT):
         block_dict = self.raw_event.get("block", {})
         qualifiers = []
 
-        # Check if this is a shot block based on the save_block attribute
+        # Convert to Interception subtype
         shot_block = block_dict.get("save_block", False)
-
-        # Add block type qualifier
-        block_type = BlockType.SHOT if shot_block else BlockType.PASS
-        qualifiers.append(BlockQualifier(value=block_type))
+        interception_type = (
+            InterceptionType.SHOT_BLOCK if shot_block else InterceptionType.PASS_BLOCK
+        )
+        qualifiers.append(InterceptionQualifier(value=interception_type))
 
         # Add body part qualifiers if available
         body_part_qualifiers = _get_body_part_qualifiers(block_dict)
         qualifiers.extend(body_part_qualifiers)
 
-        block_event = event_factory.build_block(
+        interception_event = event_factory.build_interception(
             result=None,
             qualifiers=qualifiers,
             **generic_event_kwargs,
         )
 
-        return [block_event]
+        return [interception_event]
 
 
 class MISCONTROL(EVENT):

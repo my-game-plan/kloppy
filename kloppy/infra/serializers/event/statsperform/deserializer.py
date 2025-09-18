@@ -7,8 +7,6 @@ import pytz
 
 from kloppy.domain import (
     BallState,
-    BlockQualifier,
-    BlockType,
     BodyPart,
     BodyPartQualifier,
     CardQualifier,
@@ -23,6 +21,8 @@ from kloppy.domain import (
     GoalkeeperActionType,
     GoalkeeperQualifier,
     InterceptionResult,
+    InterceptionQualifier,
+    InterceptionType,
     Metadata,
     Orientation,
     PassQualifier,
@@ -915,10 +915,14 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                             **generic_event_kwargs,
                         )
                     elif raw_event.type_id == EVENT_TYPE_BLOCKED_PASS:
-                        # Create a block event for blocked passes
-                        qualifiers = [BlockQualifier(value=BlockType.PASS)]
+                        # Convert blocked pass into an interception with PASS_BLOCK qualifier
+                        qualifiers = [
+                            InterceptionQualifier(
+                                value=InterceptionType.PASS_BLOCK
+                            )
+                        ]
 
-                        event = self.event_factory.build_block(
+                        event = self.event_factory.build_interception(
                             result=None,
                             qualifiers=qualifiers,
                             **generic_event_kwargs,
@@ -926,9 +930,13 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                     elif raw_event.type_id in KEEPER_EVENTS:
                         # Qualifier 94 means the "save" event is a shot block by a defender
                         if 94 in raw_event.qualifiers:
-                            qualifiers = [BlockQualifier(value=BlockType.SHOT)]
+                            qualifiers = [
+                                InterceptionQualifier(
+                                    value=InterceptionType.SHOT_BLOCK
+                                )
+                            ]
 
-                            event = self.event_factory.build_block(
+                            event = self.event_factory.build_interception(
                                 result=None,
                                 qualifiers=qualifiers,
                                 **generic_event_kwargs,

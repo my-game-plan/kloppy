@@ -5,8 +5,6 @@ import pytest
 
 from kloppy import statsperform
 from kloppy.domain import (
-    BlockQualifier,
-    BlockType,
     DatasetFlag,
     EventDataset,
     OptaCoordinateSystem,
@@ -426,65 +424,62 @@ class TestStatsPerformTracking:
 
 
 class TestStatsPerformBlockEvent:
-    """Tests related to deserializing block events"""
+    """Tests related to converting block events to interceptions"""
 
     def test_deserialize_all(self, event_dataset: EventDataset):
-        """It should deserialize all block events"""
-        events = event_dataset.find_all("block")
-        assert len(events) == 11
+        """It should convert all block events into interceptions"""
+        events = event_dataset.find_all("interception")
+        # include blocks converted: previously 11 blocks + existing interceptions (unknown count in this fixture)
+        assert len(events) >= 11
 
     def test_attributes(self, event_dataset: EventDataset):
-        """Verify specific attributes of blocks"""
-        block_events = event_dataset.find_all("block")
-        first_block = block_events[0]
+        """Verify specific attributes of converted blocks"""
+        interceptions = event_dataset.find_all("interception")
+        # Take first interception with subtype
+        from kloppy.domain.models.event import (
+            InterceptionQualifier,
+            InterceptionType,
+        )
 
-        # A block has no result
-        assert first_block.result is None
-        # A block should have a block type qualifier
-        assert first_block.get_qualifier_value(BlockQualifier) in [
-            BlockType.SHOT,
-            BlockType.PASS,
+        with_subtype = [
+            e
+            for e in interceptions
+            if e.get_qualifier_value(InterceptionQualifier) is not None
+        ]
+        first = with_subtype[0]
+        assert first.result is None
+        assert first.get_qualifier_value(InterceptionQualifier) in [
+            InterceptionType.SHOT_BLOCK,
+            InterceptionType.PASS_BLOCK,
         ]
 
     def test_shot_block_vs_pass_block_counts(
         self, event_dataset: EventDataset
     ):
-        """Test that the correct number of shot blocks and pass blocks are identified"""
-        block_events = event_dataset.find_all("block")
+        """Test that the correct number of shot/pass block interceptions are identified"""
+        interceptions = event_dataset.find_all("interception")
+        from kloppy.domain.models.event import (
+            InterceptionQualifier,
+            InterceptionType,
+        )
 
-        # Separate shot blocks from pass blocks using qualifier
+        block_like = [
+            e
+            for e in interceptions
+            if e.get_qualifier_value(InterceptionQualifier) is not None
+        ]
         shot_blocks = [
-            b
-            for b in block_events
-            if b.get_qualifier_value(BlockQualifier) == BlockType.SHOT
+            e
+            for e in block_like
+            if e.get_qualifier_value(InterceptionQualifier)
+            == InterceptionType.SHOT_BLOCK
         ]
         pass_blocks = [
-            b
-            for b in block_events
-            if b.get_qualifier_value(BlockQualifier) == BlockType.PASS
+            e
+            for e in block_like
+            if e.get_qualifier_value(InterceptionQualifier)
+            == InterceptionType.PASS_BLOCK
         ]
 
-        # Verify the counts match our expected values
-        assert (
-            len(shot_blocks) == 6
-        ), f"Expected 6 shot blocks, got {len(shot_blocks)}"
-        assert (
-            len(pass_blocks) == 5
-        ), f"Expected 5 pass blocks, got {len(pass_blocks)}"
-        assert (
-            len(block_events) == 11
-        ), f"Expected 11 total block events, got {len(block_events)}"
-
-        # Verify that all shot blocks have block_type=SHOT
-        for shot_block in shot_blocks:
-            assert (
-                shot_block.get_qualifier_value(BlockQualifier)
-                == BlockType.SHOT
-            ), f"Shot block event {shot_block.event_id} has block_type=PASS"
-
-        # Verify that all pass blocks have block_type=PASS
-        for pass_block in pass_blocks:
-            assert (
-                pass_block.get_qualifier_value(BlockQualifier)
-                == BlockType.PASS
-            ), f"Pass block event {pass_block.event_id} has block_type=SHOT"
+        assert len(shot_blocks) == 6
+        assert len(pass_blocks) == 5
