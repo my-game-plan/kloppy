@@ -956,7 +956,7 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                             ]
 
                             event = self.event_factory.build_interception(
-                                result=None,
+                                result=InterceptionResult.SUCCESS,
                                 qualifiers=qualifiers,
                                 **generic_event_kwargs,
                             )
