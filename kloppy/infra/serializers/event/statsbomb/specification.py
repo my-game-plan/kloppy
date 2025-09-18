@@ -803,11 +803,10 @@ class BLOCK(EVENT):
         qualifiers.extend(body_part_qualifiers)
 
 
-        result = InterceptionResult.SUCCESS
+        outcome = InterceptionResult.SUCCESS
 
-        
         interception_event = event_factory.build_interception(
-            result=None,
+            result=outcome,
             qualifiers=qualifiers,
             **generic_event_kwargs,
         )
