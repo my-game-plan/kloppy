@@ -783,7 +783,7 @@ class CLEARANCE(EVENT):
 
 
 class BLOCK(EVENT):
-    """StatsBomb 6/Block event -> Interception with subtype qualifier."""
+    """StatsBomb 6/Block event."""
 
     def _create_events(
         self, event_factory: EventFactory, **generic_event_kwargs
@@ -802,6 +802,10 @@ class BLOCK(EVENT):
         body_part_qualifiers = _get_body_part_qualifiers(block_dict)
         qualifiers.extend(body_part_qualifiers)
 
+
+        result = InterceptionResult.SUCCESS
+
+        
         interception_event = event_factory.build_interception(
             result=None,
             qualifiers=qualifiers,

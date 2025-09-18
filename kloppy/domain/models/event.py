@@ -99,8 +99,6 @@ class PassResult(ResultType):
         return self == self.COMPLETE
 
 
-
-
 class TakeOnResult(ResultType):
     """
     TakeOnResult

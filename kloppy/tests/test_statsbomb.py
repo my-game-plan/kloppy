@@ -810,7 +810,7 @@ class TestStatsBombInterceptionEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all interception events"""
         events = dataset.find_all("interception")
-        assert len(events) == 25 + 9 + 37 # interceptions + pass interceptions + shot blocks
+        assert len(events) == 25 + 9 + 37 # interceptions + pass interceptions + blocks
 
     def test_attributes(self, dataset: EventDataset):
         """Verify specific attributes of interceptions"""
@@ -889,8 +889,7 @@ class TestStatsBombBlockEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should convert all block events into interceptions"""
         events = dataset.find_all("interception")
-        # total interceptions should now include former blocks (37) + existing interceptions (25) + pass interceptions (9)
-        assert len(events) == 25 + 9 + 37
+        assert len(events) == 25 + 9 + 37 # interceptions + pass interceptions + blocks
 
     def test_attributes(self, dataset: EventDataset):
         """Verify specific attributes of converted blocks"""

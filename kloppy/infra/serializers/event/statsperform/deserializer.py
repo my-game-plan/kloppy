@@ -517,7 +517,30 @@ def _parse_duel(raw_event: OptaEvent) -> Dict:
 def _parse_interception(
     raw_event: OptaEvent, team: Team, next_event: OptaEvent
 ) -> Dict:
+    qualifiers = _get_event_qualifiers(raw_event.qualifiers) 
+    result = InterceptionResult.SUCCESS
+
+    if next_event is not None:
+        next_event_type_id = int(next_event.type_id)
+        if next_event_type_id in BALL_OUT_EVENTS:
+            result = InterceptionResult.OUT
+        elif (next_event_type_id in BALL_OWNING_EVENTS) and (
+            next_event.contestant_id != team.team_id
+        ):
+            result = InterceptionResult.LOST
+
+    return dict(
+        result=result,
+        qualifiers=qualifiers,
+    )
+
+def _parse_pass_block(
+    raw_event: OptaEvent, team: Team, next_event: OptaEvent
+) -> Dict:
+    # Convert blocked pass into an interception with PASS_BLOCK qualifier
     qualifiers = _get_event_qualifiers(raw_event.qualifiers)
+    qualifiers.append(InterceptionQualifier(value=InterceptionType.PASS_BLOCK))
+
     result = InterceptionResult.SUCCESS
 
     if next_event is not None:
@@ -915,18 +938,14 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                             **generic_event_kwargs,
                         )
                     elif raw_event.type_id == EVENT_TYPE_BLOCKED_PASS:
-                        # Convert blocked pass into an interception with PASS_BLOCK qualifier
-                        qualifiers = [
-                            InterceptionQualifier(
-                                value=InterceptionType.PASS_BLOCK
-                            )
-                        ]
-
-                        event = self.event_factory.build_interception(
-                            result=None,
-                            qualifiers=qualifiers,
-                            **generic_event_kwargs,
+                    
+                        interception_event_kwargs = _parse_pass_block(
+                            raw_event, team, next_event
                         )
+                        event = self.event_factory.build_interception(
+                            **interception_event_kwargs,
+                            **generic_event_kwargs,
+                        )  
                     elif raw_event.type_id in KEEPER_EVENTS:
                         # Qualifier 94 means the "save" event is a shot block by a defender
                         if 94 in raw_event.qualifiers:
