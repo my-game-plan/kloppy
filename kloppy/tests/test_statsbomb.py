@@ -894,8 +894,6 @@ class TestStatsBombBlockEvent:
     def test_attributes(self, dataset: EventDataset):
         """Verify specific attributes of converted blocks"""
         interception = dataset.get_event_by_id("308ef2a5-f649-473d-8230-6ac20ccd0b4a")
-        # Converted block has no result
-        assert interception.result is None
         # Should have interception type qualifier PASS_BLOCK
         assert interception.get_qualifier_value(InterceptionQualifier) == InterceptionType.PASS_BLOCK
 

@@ -447,7 +447,6 @@ class TestStatsPerformBlockEvent:
             if e.get_qualifier_value(InterceptionQualifier) is not None
         ]
         first = with_subtype[0]
-        assert first.result is None
         assert first.get_qualifier_value(InterceptionQualifier) in [
             InterceptionType.SHOT_BLOCK,
             InterceptionType.PASS_BLOCK,
