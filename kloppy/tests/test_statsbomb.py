@@ -901,17 +901,12 @@ class TestStatsBombBlockEvent:
     def test_shot_block_vs_pass_block_counts(self, dataset: EventDataset):
         """Test that the correct number of shot/pass block interceptions are identified"""
         interceptions = dataset.find_all("interception")
-        # Filter to those that have the subtype qualifier
-        block_like = [
-            e for e in interceptions if e.get_qualifier_value(InterceptionQualifier) is not None
-        ]
         shot_blocks = [
-            e for e in block_like if e.get_qualifier_value(InterceptionQualifier) == InterceptionType.SHOT_BLOCK
+            e for e in interceptions if e.get_qualifier_value(InterceptionQualifier) == InterceptionType.SHOT_BLOCK
         ]
         pass_blocks = [
-            e for e in block_like if e.get_qualifier_value(InterceptionQualifier) == InterceptionType.PASS_BLOCK
+            e for e in interceptions if e.get_qualifier_value(InterceptionQualifier) == InterceptionType.PASS_BLOCK
         ]
-
         assert len(shot_blocks) == 7
         assert len(pass_blocks) == 30
 
