@@ -792,7 +792,7 @@ class BLOCK(EVENT):
         qualifiers = []
 
         # Convert to Interception subtype
-        shot_block = block_dict.get("save_block", False)
+        shot_block = any(isinstance(related_event, SHOT) for related_event in self.related_events)
         interception_type = (
             InterceptionType.SHOT_BLOCK if shot_block else InterceptionType.PASS_BLOCK
         )
@@ -802,11 +802,10 @@ class BLOCK(EVENT):
         body_part_qualifiers = _get_body_part_qualifiers(block_dict)
         qualifiers.extend(body_part_qualifiers)
 
-
-        outcome = InterceptionResult.SUCCESS
+        result = InterceptionResult.SUCCESS
 
         interception_event = event_factory.build_interception(
-            result=outcome,
+            result=result,
             qualifiers=qualifiers,
             **generic_event_kwargs,
         )

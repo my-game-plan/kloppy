@@ -896,6 +896,7 @@ class TestStatsBombBlockEvent:
         interception = dataset.get_event_by_id("308ef2a5-f649-473d-8230-6ac20ccd0b4a")
         # Should have interception type qualifier PASS_BLOCK
         assert interception.get_qualifier_value(InterceptionQualifier) == InterceptionType.PASS_BLOCK
+        assert interception.result == InterceptionResult.SUCCESS
 
     def test_shot_block_vs_pass_block_counts(self, dataset: EventDataset):
         """Test that the correct number of shot/pass block interceptions are identified"""
@@ -911,9 +912,8 @@ class TestStatsBombBlockEvent:
             e for e in block_like if e.get_qualifier_value(InterceptionQualifier) == InterceptionType.PASS_BLOCK
         ]
 
-        # For this dataset, all previous blocks should be pass blocks
-        assert len(shot_blocks) == 0
-        assert len(pass_blocks) == 37
+        assert len(shot_blocks) == 7
+        assert len(pass_blocks) == 30
 
 
 class TestStatsBombMiscontrolEvent:
