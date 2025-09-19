@@ -802,8 +802,7 @@ class BLOCK(EVENT):
         body_part_qualifiers = _get_body_part_qualifiers(block_dict)
         qualifiers.extend(body_part_qualifiers)
 
-        result = InterceptionResult.SUCCESS
-
+        result = InterceptionResult.OUT if self.raw_event.get("out", False) else InterceptionResult.SUCCESS
         interception_event = event_factory.build_interception(
             result=result,
             qualifiers=qualifiers,
