@@ -557,6 +557,29 @@ def _parse_pass_block(
         qualifiers=qualifiers,
     )
 
+def _parse_shot_block(
+    raw_event: OptaEvent, team: Team, next_event: OptaEvent
+) -> Dict:
+    # Convert shot block into an interception with SHOT_BLOCK qualifier
+    qualifiers = _get_event_qualifiers(raw_event.qualifiers)
+    qualifiers.append(InterceptionQualifier(value=InterceptionType.SHOT_BLOCK))
+
+    result = InterceptionResult.SUCCESS
+
+    if next_event is not None:
+        next_event_type_id = int(next_event.type_id)
+        if next_event_type_id in BALL_OUT_EVENTS:
+            result = InterceptionResult.OUT
+        elif (next_event_type_id in BALL_OWNING_EVENTS) and (
+            next_event.contestant_id != team.team_id
+        ):
+            result = InterceptionResult.LOST
+
+    return dict(
+        result=result,
+        qualifiers=qualifiers,
+    )
+
 
 def _get_end_coordinates(
     raw_qualifiers: Dict[int, str], start_coordinates: Optional[Point] = None
@@ -949,15 +972,11 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                     elif raw_event.type_id in KEEPER_EVENTS:
                         # Qualifier 94 means the "save" event is a shot block by a defender
                         if 94 in raw_event.qualifiers:
-                            qualifiers = [
-                                InterceptionQualifier(
-                                    value=InterceptionType.SHOT_BLOCK
-                                )
-                            ]
-
+                            interception_event_kwargs = _parse_shot_block(
+                                raw_event, team, next_event
+                            )
                             event = self.event_factory.build_interception(
-                                result=InterceptionResult.SUCCESS,
-                                qualifiers=qualifiers,
+                                **interception_event_kwargs,
                                 **generic_event_kwargs,
                             )
                         else:
