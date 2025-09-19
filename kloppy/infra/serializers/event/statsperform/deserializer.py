@@ -961,14 +961,13 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                             **generic_event_kwargs,
                         )
                     elif raw_event.type_id == EVENT_TYPE_BLOCKED_PASS:
-                    
                         interception_event_kwargs = _parse_pass_block(
                             raw_event, team, next_event
                         )
                         event = self.event_factory.build_interception(
                             **interception_event_kwargs,
                             **generic_event_kwargs,
-                        )  
+                        )
                     elif raw_event.type_id in KEEPER_EVENTS:
                         # Qualifier 94 means the "save" event is a shot block by a defender
                         if 94 in raw_event.qualifiers:

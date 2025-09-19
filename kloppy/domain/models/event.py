@@ -544,6 +544,7 @@ class InterceptionQualifier(EnumQualifier):
     """
 
     value: InterceptionType
+
 @dataclass
 @docstring_inherit_attributes(DataRecord)
 class Event(DataRecord, ABC):
