@@ -31,7 +31,7 @@ from kloppy.domain import (
 from kloppy.domain.models.event import (
     PossessionSwitchQualifier,
     PossessionSwitchType,
-    EventType,
+    PassResult, PressureEvent,
 )
 from ..builder import StateBuilder
 
@@ -60,6 +60,10 @@ def is_ball_winning_defensive_action(event: Event) -> bool:
     elif isinstance(event, ClearanceEvent):
         return True
 
+def is_failed_pass(event: Event) -> bool:
+    if isinstance(event, PassEvent) and event.result != PassResult.COMPLETE:
+        return True
+    return False
 
 def is_possessing_event(event: Event) -> bool:
     if isinstance(event, (PassEvent, CarryEvent, RecoveryEvent, TakeOnEvent)):
@@ -159,8 +163,7 @@ class SequenceStateBuilder(StateBuilder):
                 sequence_teams.setdefault(new_sequence_id, sequence.team)
 
                 if (
-                    event.event_type
-                    not in [EventType.PRESSURE, EventType.BALL_OUT]
+                    not isinstance(event, (PressureEvent, BallOutEvent))
                     and event.team.team_id == sequence.team.team_id
                 ):
                     # track first & last event per sequence
@@ -172,7 +175,8 @@ class SequenceStateBuilder(StateBuilder):
         for seq_id, first_event in first_events.items():
             if sequence_teams.get(seq_id - 1, None) == sequence_teams[seq_id]:
                 continue  # previous sequence is by same team, so no possession gain
-            if not first_event.get_qualifier_value(SetPieceQualifier):
+            # set pieces or failed passes are no possession gains
+            if not first_event.get_qualifier_value(SetPieceQualifier) and not is_failed_pass(first_event):
                 first_event.qualifiers = first_event.qualifiers or []
                 first_event.qualifiers.append(
                     PossessionSwitchQualifier(PossessionSwitchType.GAIN)
@@ -180,7 +184,11 @@ class SequenceStateBuilder(StateBuilder):
         for seq_id, last_event in last_events.items():
             if sequence_teams.get(seq_id + 1, None) == sequence_teams[seq_id]:
                 continue  # next sequence is by same team, so no possession loss
-            if last_event.event_type != EventType.SHOT:
+            # no possession losses on single-event sequences unless it's a set piece
+            if last_event.event_id == first_events.get(seq_id).event_id and not last_event.get_qualifier_value(SetPieceQualifier) :
+                continue
+
+            if not isinstance(last_event, ShotEvent):
                 last_event.qualifiers = last_event.qualifiers or []
                 last_event.qualifiers.append(
                     PossessionSwitchQualifier(PossessionSwitchType.LOSE)
