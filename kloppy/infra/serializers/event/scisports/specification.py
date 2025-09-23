@@ -546,9 +546,10 @@ class SHOT(EVENT):
 
         # According to documentation: Shot (6) -> Shot (600) -> Unsuccessful (0) / Successful (1)
         # Successful (1) = goal, Unsuccessful (0) = not a goal
-        if result_id == RESULT.SUCCESSFUL:
+        result_enum = RESULT(result_id)
+        if result_enum == RESULT.SUCCESSFUL:
             result = ShotResult.GOAL
-        elif result_id == RESULT.UNSUCCESSFUL:
+        elif result_enum == RESULT.UNSUCCESSFUL:
             # For unsuccessful shots, determine specific result type from shotTypeId
             shot_type_id = self.raw_event.get("shotTypeId")
             if shot_type_id is not None:

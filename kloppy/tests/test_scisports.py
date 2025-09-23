@@ -13,6 +13,7 @@ from kloppy.domain import (
     Dimension,
     EventDataset,
     EventType,
+    InterceptionResult,
     MetricPitchDimensions,
     Orientation,
     PassResult,
@@ -23,6 +24,7 @@ from kloppy.domain import (
     Time,
     build_coordinate_system,
     PassQualifier,
+    CardType,
 )
 from kloppy.domain.models.event import (
     PassEvent,
@@ -32,6 +34,8 @@ from kloppy.domain.models.event import (
     CardEvent,
     SubstitutionEvent,
     SetPieceQualifier,
+    ShotResult,
+    CardQualifier,
 )
 
 
@@ -222,7 +226,7 @@ class TestSciSportsPassEvent:
         assert kick_off_pass.timestamp == timedelta(seconds=0.07)
 
         assert kick_off_pass.receiver_coordinates == Point(x=-13.65, y=0.68)
-        assert kick_off_pass.receiver_player.id == "124"
+        assert kick_off_pass.receiver_player.player_id == "124"
 
     def test_pass_result_checks(self, dataset: EventDataset):
         """Test pass result types (complete/incomplete)"""
@@ -237,8 +241,8 @@ class TestSciSportsPassEvent:
         ]
 
         # Should have both types in the dataset
-        assert complete_passes == 631
-        assert incomplete_passes == 178
+        assert len(complete_passes) == 631
+        assert len(incomplete_passes) == 178
 
     def test_set_piece_checks(self, dataset: EventDataset):
         """Test different set piece types"""
@@ -331,10 +335,9 @@ class TestSciSportsShotEvent:
 
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all shot events"""
-        events = dataset.find_all("shot")
-        # Based on our analysis, should have 38 shot events
-        assert len(events) > 35
-        assert len(events) < 45
+        shots = dataset.find_all("shot")
+
+        assert len(shots) == 38
 
     def test_shot_event(self, dataset: EventDataset):
         """Verify specific attributes of shot event"""
@@ -347,23 +350,37 @@ class TestSciSportsShotEvent:
         assert shot_event.player.name == "Matteo De Notarpietro"
         assert shot_event.team.name == "KRC Genk U16"
 
-        # Check coordinates
         assert shot_event.coordinates == Point(45.15, -5.44)
-
-        # Check timing - should be in second period based on timestamp
         assert shot_event.timestamp == timedelta(seconds=197.6)
 
-    def test_shot_has_result_coordinates(self, dataset: EventDataset):
-        """Test that shots have end coordinates"""
-        shot_event = dataset.get_event_by_id("87")
-        assert shot_event is not None
+        # No z coordinate given
+        assert shot_event.result_coordinates == Point(x=52.5, y=-0.27)
+        assert shot_event.result == ShotResult.OFF_TARGET
 
-        # Check that raw event has end coordinates
-        raw_event = shot_event.raw_event
-        assert "endPosXM" in raw_event
-        assert "endPosYM" in raw_event
-        assert raw_event["endPosXM"] == 52.5
-        assert raw_event["endPosYM"] == -0.27
+    def test_shot_results(self, dataset):
+        """Test shot result types (on target, off target, blocked)"""
+        shot_events = dataset.find_all("shot")
+
+        goal_shots = [e for e in shot_events if e.result == ShotResult.GOAL]
+        off_target_shots = [
+            e for e in shot_events if e.result == ShotResult.OFF_TARGET
+        ]
+        post_shots = [e for e in shot_events if e.result == ShotResult.POST]
+        blocked_shots = [
+            e for e in shot_events if e.result == ShotResult.BLOCKED
+        ]
+        saved_shots = [e for e in shot_events if e.result == ShotResult.SAVED]
+        own_goal_shots = [
+            e for e in shot_events if e.result == ShotResult.OWN_GOAL
+        ]
+
+        # Should have a mix of shot results
+        assert len(goal_shots) == 6
+        assert len(off_target_shots) == 14
+        assert len(post_shots) == 1
+        assert len(blocked_shots) == 7
+        assert len(saved_shots) == 10
+        assert len(own_goal_shots) == 0
 
 
 class TestSciSportsInterceptionEvent:
@@ -371,25 +388,18 @@ class TestSciSportsInterceptionEvent:
 
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all interception events"""
-        # SciSports interceptions are mapped to passes in our implementation
-        # Find events that were originally interceptions
-        interception_events = []
-        for event in dataset.events:
-            if event.raw_event.get("baseTypeName") == "INTERCEPTION":
-                interception_events.append(event)
-
-        # Based on our analysis, should have around 201 interception events
-        # These are now mapped to pass events in our implementation
-        assert len(interception_events) > 150
-        assert len(interception_events) < 250
+        events = dataset.find_all("interception")
+        assert len(events) == 201
 
     def test_interception_event(self, dataset: EventDataset):
         """Verify specific attributes of interception event"""
         # Find the specific interception event
         interception_event = dataset.get_event_by_id("27")
         assert interception_event is not None
+        assert isinstance(interception_event, InterceptionEvent)
 
         # Check basic properties
+        assert interception_event.event_type == EventType.INTERCEPTION
         assert interception_event.player.name == "Kas Jackers"
         assert interception_event.team.name == "Sint-Truidense VV U16"
 
@@ -401,6 +411,21 @@ class TestSciSportsInterceptionEvent:
             interception_event.raw_event.get("baseTypeName") == "INTERCEPTION"
         )
 
+    def test_interception_results(self, dataset: EventDataset):
+        """Test interception result types"""
+        interception_events = dataset.find_all("interception")
+
+        # Most interceptions should be successful
+        successful_interceptions = [
+            e
+            for e in interception_events
+            if e.result == InterceptionResult.SUCCESS
+        ]
+
+        # All SciSports interceptions are considered successful by definition
+        assert len(successful_interceptions) == len(interception_events)
+        assert len(successful_interceptions) == 201
+
 
 class TestSciSportsFoulEvent:
     """Tests related to deserializing Foul events"""
@@ -408,9 +433,7 @@ class TestSciSportsFoulEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all foul events"""
         events = dataset.find_all("foul_committed")
-        # Based on our analysis, should have around 46 foul events
-        assert len(events) > 35
-        assert len(events) < 60
+        assert len(events) == 46
 
     def test_foul_event(self, dataset: EventDataset):
         """Verify specific attributes of foul event"""
@@ -426,6 +449,9 @@ class TestSciSportsFoulEvent:
         # Check coordinates
         assert foul_event.coordinates == Point(26.25, -25.16)
 
+        # Check that this was originally a foul
+        assert foul_event.raw_event.get("baseTypeName") == "FOUL"
+
 
 class TestSciSportsCardEvent:
     """Tests related to deserializing Card events"""
@@ -433,9 +459,7 @@ class TestSciSportsCardEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all card events"""
         events = dataset.find_all("card")
-        # Based on our analysis, should have around 5 card events
-        assert len(events) >= 3
-        assert len(events) <= 8
+        assert len(events) == 5
 
     def test_card_event(self, dataset: EventDataset):
         """Verify specific attributes of card event"""
@@ -448,6 +472,25 @@ class TestSciSportsCardEvent:
         assert card_event.player.name == "Ebrima Ceesay"
         assert card_event.team.name == "KRC Genk U16"
 
+        # Check that this was originally a card
+        assert card_event.raw_event.get("baseTypeName") == "CARD"
+
+    def test_card_types(self, dataset: EventDataset):
+        """Test different card types (yellow, second yellow, red)"""
+        card_events = dataset.find_all("card")
+
+        first_yellow_cards = [
+            e for e in card_events if e.card_type == CardType.FIRST_YELLOW
+        ]
+        second_yellow_cards = [
+            e for e in card_events if e.card_type == CardType.SECOND_YELLOW
+        ]
+        red_cards = [e for e in card_events if e.card_type == CardType.RED]
+
+        assert len(first_yellow_cards) == 5
+        assert len(second_yellow_cards) == 0
+        assert len(red_cards) == 0
+
 
 class TestSciSportsSubstitutionEvent:
     """Tests related to deserializing Substitution events"""
@@ -455,308 +498,16 @@ class TestSciSportsSubstitutionEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all substitution events"""
         events = dataset.find_all("substitution")
+        assert len(events) == 10  # Proper SubstitutionEvents
 
-        # Find generic events that were originally substitutions
-        generic_substitution_events = []
-        for event in dataset.events:
-            if (
-                event.event_type == EventType.GENERIC
-                and event.raw_event.get("baseTypeName") == "SUBSTITUTE"
-            ):
-                generic_substitution_events.append(event)
-
-        total_substitution_events = len(events) + len(
-            generic_substitution_events
-        )
-
-        print(f"\nSubstitution event analysis:")
-        print(f"  Proper SubstitutionEvents: {len(events)}")
-        print(
-            f"  Generic events from substitutions: {len(generic_substitution_events)}"
-        )
-        print(
-            f"  Total substitution-related events: {total_substitution_events}"
-        )
-
-        # Based on actual results, substitutions are falling back to generic events
-        # The deserializer skips SUBBED_IN events and only processes SUBBED_OUT events
-        assert (
-            total_substitution_events > 0
-        )  # Should have some substitution events
-
-        # Should have exactly 5 substitution-related events (only SUBBED_OUT events are processed)
-        assert (
-            total_substitution_events >= 5
-        )  # At minimum the SUBBED_OUT events
-
-    def test_substitution_event_fallback(self, dataset: EventDataset):
-        """Verify that substitution events fallback to generic when replacement player not found"""
-        # Event 881 is a substitution that should exist as either substitution or generic
+    def test_substitution_event(self, dataset: EventDataset):
         sub_event = dataset.get_event_by_id("881")
-        assert sub_event is not None
 
-        print(f"\nGeorge Olupinsaiye substitution (Event 881):")
-        print(f"  Event type: {sub_event.event_type}")
-        print(f"  Event class: {type(sub_event).__name__}")
-        print(f"  Player: {sub_event.player.name}")
-        print(f"  Raw sub type: {sub_event.raw_event.get('subTypeName')}")
-        print(f"  Team: {sub_event.team.name}")
+        player_off = sub_event.player
+        player_on = sub_event.replacement_player
 
-        # Check that this was originally a substitution
-        assert sub_event.raw_event.get("baseTypeName") == "SUBSTITUTE"
-        assert sub_event.raw_event.get("subTypeName") == "SUBBED_OUT"
+        assert player_off.player_id == "121"
+        assert player_on.player_id == "122"
 
-        # Depending on implementation, might be generic or substitution
-        assert sub_event.event_type in [
-            EventType.SUBSTITUTION,
-            EventType.GENERIC,
-        ]
-
-        # If it's a proper substitution event, it should have a replacement player
-        if sub_event.event_type == EventType.SUBSTITUTION:
-            assert isinstance(sub_event, SubstitutionEvent)
-            assert sub_event.replacement_player is not None
-            print(f"  Replacement player: {sub_event.replacement_player.name}")
-        else:
-            print(
-                f"  Event fell back to generic (no replacement player found)"
-            )
-
-    def test_substitution_pairing_analysis(self, dataset: EventDataset):
-        """Analyze substitution pairing logic and verify correctness"""
-        import json
-        from pathlib import Path
-
-        # Load raw data to analyze pairing
-        base_dir = Path(__file__).parent
-        with open(base_dir / "files" / "scisports_events.json") as f:
-            raw_data = json.load(f)
-
-        # Find all raw substitution events
-        raw_sub_events = [
-            event
-            for event in raw_data.get("data", [])
-            if event.get("baseTypeName") == "SUBSTITUTE"
-        ]
-
-        subbed_out_events = [
-            e for e in raw_sub_events if e.get("subTypeName") == "SUBBED_OUT"
-        ]
-        subbed_in_events = [
-            e for e in raw_sub_events if e.get("subTypeName") == "SUBBED_IN"
-        ]
-
-        print(f"\nRaw substitution event analysis:")
-        print(f"  Total raw substitution events: {len(raw_sub_events)}")
-        print(f"  SUBBED_OUT events: {len(subbed_out_events)}")
-        print(f"  SUBBED_IN events: {len(subbed_in_events)}")
-
-        # Analyze potential pairing
-        print(f"\nSubstitution pairs analysis:")
-        successful_pairs = 0
-        for i, out_event in enumerate(subbed_out_events):
-            out_team_id = out_event.get("teamId")
-            out_time = out_event.get("startTimeMs", 0)
-            out_player_name = out_event.get("playerName", "Unknown")
-
-            # Look for corresponding SUBBED_IN event within 5 events and same team
-            corresponding_in = None
-            for in_event in subbed_in_events:
-                in_team_id = in_event.get("teamId")
-                in_time = in_event.get("startTimeMs", 0)
-                if (
-                    in_team_id == out_team_id
-                    and abs(in_time - out_time) <= 1000
-                ):
-                    corresponding_in = in_event
-                    break
-
-            if corresponding_in:
-                in_player_name = corresponding_in.get("playerName", "Unknown")
-                team_name = "Home" if out_team_id == 8 else "Away"
-                print(
-                    f"  {i+1}. {team_name} @ {out_time/1000:.1f}s: {out_player_name} -> {in_player_name}"
-                )
-                successful_pairs += 1
-            else:
-                print(
-                    f"  {i+1}. NO PAIR FOUND for {out_player_name} (team {out_team_id}, time {out_time/1000:.1f}s)"
-                )
-
-        print(
-            f"\nPairing success rate: {successful_pairs}/{len(subbed_out_events)} ({successful_pairs/len(subbed_out_events)*100:.1f}%)"
-        )
-
-        # Should have equal numbers of SUBBED_OUT and SUBBED_IN events
-        assert len(subbed_out_events) == len(subbed_in_events)
-
-        # Verify the deserializer logic: only SUBBED_OUT events should be processed
-        processed_events = dataset.find_all("substitution") + [
-            e
-            for e in dataset.events
-            if e.event_type == EventType.GENERIC
-            and e.raw_event.get("baseTypeName") == "SUBSTITUTE"
-        ]
-
-        print(f"\nDeserializer processing verification:")
-        print(
-            f"  Expected processed events (SUBBED_OUT only): {len(subbed_out_events)}"
-        )
-        print(f"  Actually processed events: {len(processed_events)}")
-
-        # The number of processed events should equal the number of SUBBED_OUT events
-        # since SUBBED_IN events are skipped during processing
-        assert len(processed_events) == len(subbed_out_events)
-
-    def test_substitution_implementation_correctness(
-        self, dataset: EventDataset
-    ):
-        """Verify that the substitution implementation logic is working as intended"""
-        # Check that the deserializer correctly identifies starting vs substitute players
-        home_team = dataset.metadata.teams[0]
-        away_team = dataset.metadata.teams[1]
-
-        home_starters = [p for p in home_team.players if p.starting]
-        away_starters = [p for p in away_team.players if p.starting]
-        home_subs = [p for p in home_team.players if not p.starting]
-        away_subs = [p for p in away_team.players if not p.starting]
-
-        print(f"\nStarting lineup analysis:")
-        print(f"  Home team ({home_team.name}):")
-        print(f"    Starters: {len(home_starters)}")
-        print(f"    Substitutes: {len(home_subs)}")
-        print(f"  Away team ({away_team.name}):")
-        print(f"    Starters: {len(away_starters)}")
-        print(f"    Substitutes: {len(away_subs)}")
-
-        # Each team should have exactly 11 starting players
-        assert len(home_starters) == 11
-        assert len(away_starters) == 11
-
-        # Check specific substitution examples
-        george = home_team.get_player_by_id(
-            "121"
-        )  # George Olupinsaiye - substituted out
-        kimonekene = home_team.get_player_by_id(
-            "122"
-        )  # Kimonekene Jeremy Nganzadi - substituted in
-
-        if george and kimonekene:
-            print(f"\nSpecific substitution validation:")
-            print(
-                f"  George Olupinsaiye (121): {'Starter' if george.starting else 'Substitute'}"
-            )
-            print(
-                f"  Kimonekene Jeremy Nganzadi (122): {'Starter' if kimonekene.starting else 'Substitute'}"
-            )
-
-            # George was substituted out, so should be a starter
-            assert (
-                george.starting
-            ), "George Olupinsaiye should be marked as a starter (was substituted out)"
-
-            # Kimonekene was substituted in, so should NOT be a starter
-            assert (
-                not kimonekene.starting
-            ), "Kimonekene Jeremy Nganzadi should be marked as a substitute (was substituted in)"
-
-        print(f"\nStarting lineup identification: CORRECT ✓")
-
-
-class TestSciSportsCoordinateSystem:
-    """Tests related to coordinate system and transformations"""
-
-    def test_coordinate_transformation(self, dataset: EventDataset):
-        """Test that coordinates are properly handled"""
-        # Find an event with non-zero coordinates
-        event_with_coords = None
-        for event in dataset.events:
-            if event.coordinates and (
-                event.coordinates.x != 0 or event.coordinates.y != 0
-            ):
-                event_with_coords = event
-                break
-
-        assert event_with_coords is not None
-
-        # Coordinates should be Point objects
-        assert isinstance(event_with_coords.coordinates, Point)
-
-        # Coordinates should be within expected range for SciSports (meters)
-        assert -60 <= event_with_coords.coordinates.x <= 60
-        assert -40 <= event_with_coords.coordinates.y <= 40
-
-    def test_pitch_dimensions_consistency(self, dataset: EventDataset):
-        """Test that pitch dimensions are consistent with coordinate system"""
-        coord_system = dataset.metadata.coordinate_system
-        pitch_dims = coord_system.pitch_dimensions
-
-        # Should be metric dimensions for SciSports
-        assert isinstance(pitch_dims, MetricPitchDimensions)
-
-        # Dimensions should match SciSports coordinate system
-        assert pitch_dims.x_dim.min == -52.5
-        assert pitch_dims.x_dim.max == 52.5
-        assert pitch_dims.y_dim.min == -34
-        assert pitch_dims.y_dim.max == 34
-
-
-class TestSciSportsDataIntegrity:
-    """Tests related to data integrity and completeness"""
-
-    def test_all_events_have_required_fields(self, dataset: EventDataset):
-        """Test that all events have required fields"""
-        for event in dataset.events:
-            # Every event should have these basic fields
-            assert event.event_id is not None
-            assert event.period is not None
-            assert event.timestamp is not None
-            assert event.team is not None
-            assert event.player is not None
-            assert event.raw_event is not None
-
-    def test_no_missing_players(self, dataset: EventDataset):
-        """Test that all events reference valid players"""
-        # Count events with unknown players (player_id == "-1")
-        unknown_player_events = 0
-        for event in dataset.events:
-            if event.raw_event.get("playerId") == -1:
-                unknown_player_events += 1
-
-        # Should have very few events with unknown players
-        total_events = len(dataset.events)
-        assert unknown_player_events / total_events < 0.1  # Less than 10%
-
-    def test_event_time_progression(self, dataset: EventDataset):
-        """Test that event timestamps progress logically"""
-        # Events should be roughly in chronological order
-        prev_time = None
-        for event in dataset.events:
-            current_time = (
-                event.period.id * 10000 + event.timestamp.total_seconds()
-            )
-            if prev_time is not None:
-                # Allow some flexibility for simultaneous events
-                assert current_time >= prev_time - 1
-            prev_time = current_time
-
-    def test_team_distribution(self, dataset: EventDataset):
-        """Test that events are distributed between teams"""
-        team_counts = {}
-        for event in dataset.events:
-            team_name = event.team.name
-            team_counts[team_name] = team_counts.get(team_name, 0) + 1
-
-        # Should have events for both teams
-        assert len(team_counts) == 2
-        assert "KRC Genk U16" in team_counts
-        assert "Sint-Truidense VV U16" in team_counts
-
-        # Neither team should have less than 20% of events
-        total_events = sum(team_counts.values())
-        for count in team_counts.values():
-            assert count / total_events > 0.2
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])
+        assert sub_event.time.period.id == 2
+        assert sub_event.time.timestamp == timedelta(0)
