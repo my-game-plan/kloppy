@@ -62,7 +62,7 @@ class TypesEnumMeta(EnumMeta):
         return super().__call__(value, *args, **kw)
 
 
-class EVENT_TYPE(IntEnum):
+class EVENT_TYPE(Enum, metaclass=TypesEnumMeta):
     """SciSports event types mapping"""
 
     PASS = 1
@@ -85,57 +85,131 @@ class EVENT_TYPE(IntEnum):
     OTHER = 19
 
 
+class BODY_PART(Enum, metaclass=TypesEnumMeta):
+    """SciSports body part types"""
+
+    UNKNOWN = -2
+    NOT_APPLICABLE = -1
+    FEET = 0
+    LEFT_FOOT = 1
+    RIGHT_FOOT = 2
+    HEAD = 3
+    HANDS = 4
+    OTHER = 5
+    UNKNOWN_ALT = 6
+
+
 BODY_PART_MAPPING = {
-    -2: BodyPart.OTHER,  # Unknown
-    -1: BodyPart.OTHER,  # Not applicable
-    0: BodyPart.RIGHT_FOOT,  # Feet - default to right foot
-    1: BodyPart.LEFT_FOOT,
-    2: BodyPart.RIGHT_FOOT,
-    3: BodyPart.HEAD,
-    4: BodyPart.BOTH_HANDS,  # Hands
-    5: BodyPart.OTHER,  # Other
-    6: BodyPart.OTHER,  # Unknown
+    BODY_PART.UNKNOWN: BodyPart.OTHER,
+    BODY_PART.NOT_APPLICABLE: BodyPart.OTHER,
+    BODY_PART.FEET: BodyPart.OTHER,
+    BODY_PART.LEFT_FOOT: BodyPart.LEFT_FOOT,
+    BODY_PART.RIGHT_FOOT: BodyPart.RIGHT_FOOT,
+    BODY_PART.HEAD: BodyPart.HEAD,
+    BODY_PART.HANDS: BodyPart.BOTH_HANDS,
+    BODY_PART.OTHER: BodyPart.OTHER,
+    BODY_PART.UNKNOWN_ALT: BodyPart.OTHER,
 }
+
+
+class POSITION_TYPE(Enum, metaclass=TypesEnumMeta):
+    """SciSports position types"""
+
+    UNKNOWN = -2
+    NOT_APPLICABLE = -1
+    GOALKEEPER = 0
+    LEFT_BACK = 1
+    LEFT_WING_BACK = 2
+    LEFT_CENTER_BACK = 3
+    CENTER_BACK = 4
+    RIGHT_CENTER_BACK = 5
+    RIGHT_WING_BACK = 6
+    RIGHT_BACK = 7
+    LEFT_DEFENSIVE_MIDFIELDER = 8
+    DEFENSIVE_MIDFIELDER = 9
+    RIGHT_DEFENSIVE_MIDFIELDER = 10
+    LEFT_CENTER_MIDFIELDER = 11
+    CENTER_MIDFIELDER = 12
+    RIGHT_CENTER_MIDFIELDER = 13
+    LEFT_WING = 14
+    RIGHT_WING = 15
+    LEFT_WING_FORWARD = 16
+    RIGHT_WING_FORWARD = 17
+    LEFT_ATTACKING_MIDFIELDER = 18
+    RIGHT_ATTACKING_MIDFIELDER = 19
+    ATTACKING_MIDFIELDER = 20
+    LEFT_CENTER_FORWARD = 21
+    RIGHT_CENTER_FORWARD = 22
+    CENTER_FORWARD = 23
+    RIGHT_MIDFIELDER = 24
+    LEFT_MIDFIELDER = 25
 
 
 POSITION_TYPE_MAPPING = {
-    -2: None,  # Unknown
-    -1: None,  # Not Applicable
-    0: PositionType.Goalkeeper,  # Goalkeeper
-    1: PositionType.LeftBack,  # Leftback
-    2: PositionType.LeftWingBack,  # Leftwingback
-    3: PositionType.CenterBack,  # Leftcentreback
-    4: PositionType.CenterBack,  # Centreback
-    5: PositionType.CenterBack,  # Rightcentreback
-    6: PositionType.RightWingBack,  # Rightwingback
-    7: PositionType.RightBack,  # Rightback
-    8: PositionType.LeftDefensiveMidfield,  # Leftdefensivemidfielder
-    9: PositionType.DefensiveMidfield,  # Defensivemidfielder
-    10: PositionType.RightDefensiveMidfield,  # Rightdefensivemidfielder
-    11: PositionType.LeftCentralMidfield,  # Leftcentremidfielder
-    12: PositionType.CenterMidfield,  # Centremidfielder
-    13: PositionType.RightCentralMidfield,  # Rightcentremidfielder
-    14: PositionType.LeftWing,  # Leftwing
-    15: PositionType.RightWing,  # Rightwing
-    16: PositionType.LeftWing,  # Leftwingforward
-    17: PositionType.RightWing,  # Rightwingforward
-    18: PositionType.LeftAttackingMidfield,  # Leftattackingmidfielder
-    19: PositionType.RightAttackingMidfield,  # Rightattackingmidfielder
-    20: PositionType.AttackingMidfield,  # Attackingmidfielder
-    21: PositionType.LeftForward,  # Leftcentreforward
-    22: PositionType.RightForward,  # Rightcentreforward
-    23: PositionType.Striker,  # Centreforward
-    24: PositionType.RightMidfield,  # Rightmidfielder
-    25: PositionType.LeftMidfield,  # Leftmidfielder
+    POSITION_TYPE.UNKNOWN: None,
+    POSITION_TYPE.NOT_APPLICABLE: None,
+    POSITION_TYPE.GOALKEEPER: PositionType.Goalkeeper,
+    POSITION_TYPE.LEFT_BACK: PositionType.LeftBack,
+    POSITION_TYPE.LEFT_WING_BACK: PositionType.LeftWingBack,
+    POSITION_TYPE.LEFT_CENTER_BACK: PositionType.CenterBack,
+    POSITION_TYPE.CENTER_BACK: PositionType.CenterBack,
+    POSITION_TYPE.RIGHT_CENTER_BACK: PositionType.CenterBack,
+    POSITION_TYPE.RIGHT_WING_BACK: PositionType.RightWingBack,
+    POSITION_TYPE.RIGHT_BACK: PositionType.RightBack,
+    POSITION_TYPE.LEFT_DEFENSIVE_MIDFIELDER: PositionType.LeftDefensiveMidfield,
+    POSITION_TYPE.DEFENSIVE_MIDFIELDER: PositionType.DefensiveMidfield,
+    POSITION_TYPE.RIGHT_DEFENSIVE_MIDFIELDER: PositionType.RightDefensiveMidfield,
+    POSITION_TYPE.LEFT_CENTER_MIDFIELDER: PositionType.LeftCentralMidfield,
+    POSITION_TYPE.CENTER_MIDFIELDER: PositionType.CenterMidfield,
+    POSITION_TYPE.RIGHT_CENTER_MIDFIELDER: PositionType.RightCentralMidfield,
+    POSITION_TYPE.LEFT_WING: PositionType.LeftWing,
+    POSITION_TYPE.RIGHT_WING: PositionType.RightWing,
+    POSITION_TYPE.LEFT_WING_FORWARD: PositionType.LeftWing,
+    POSITION_TYPE.RIGHT_WING_FORWARD: PositionType.RightWing,
+    POSITION_TYPE.LEFT_ATTACKING_MIDFIELDER: PositionType.LeftAttackingMidfield,
+    POSITION_TYPE.RIGHT_ATTACKING_MIDFIELDER: PositionType.RightAttackingMidfield,
+    POSITION_TYPE.ATTACKING_MIDFIELDER: PositionType.AttackingMidfield,
+    POSITION_TYPE.LEFT_CENTER_FORWARD: PositionType.LeftForward,
+    POSITION_TYPE.RIGHT_CENTER_FORWARD: PositionType.RightForward,
+    POSITION_TYPE.CENTER_FORWARD: PositionType.Striker,
+    POSITION_TYPE.RIGHT_MIDFIELDER: PositionType.RightMidfield,
+    POSITION_TYPE.LEFT_MIDFIELDER: PositionType.LeftMidfield,
 }
 
 
-SET_PIECE_TYPE_MAPPING = {
-    7: SetPieceType.THROW_IN,
-    8: SetPieceType.CORNER_KICK,
-    9: SetPieceType.FREE_KICK,
-    10: SetPieceType.PENALTY,
-}
+# class POSSESSION_TYPE(Enum, metaclass=TypesEnumMeta):
+#     """SciSports possession types"""
+#
+#     UNKNOWN = -2
+#     NOT_APPLICABLE = -1
+#     OPEN_PLAY = 0
+#     THROW_IN = 1
+#     FREE_KICK = 2
+#     GOAL_KICK = 3
+#     CORNER = 4
+#     PENALTY = 5
+#     COUNTER = 6
+#     NONE = 7
+#     BROADCAST_INTERRUPTION = 8
+
+
+class RESULT(Enum, metaclass=TypesEnumMeta):
+    """SciSports result types"""
+
+    UNKNOWN = -2
+    NOT_APPLICABLE = -1
+    UNSUCCESSFUL = 0
+    SUCCESSFUL = 1
+    OTHER = 2
+
+
+# SET_PIECE_TYPE_MAPPING = {
+#     POSSESSION_TYPE.THROW_IN: SetPieceType.THROW_IN,
+#     POSSESSION_TYPE.CORNER: SetPieceType.CORNER_KICK,
+#     POSSESSION_TYPE.FREE_KICK: SetPieceType.FREE_KICK,
+#     POSSESSION_TYPE.PENALTY: SetPieceType.PENALTY,
+#     POSSESSION_TYPE.GOAL_KICK: SetPieceType.GOAL_KICK,
+# }
 
 
 FORMATION_MAPPING = {
@@ -280,37 +354,125 @@ class EVENT:
 class PASS(EVENT):
     """SciSports 1/Pass and 2/Cross events."""
 
+    class SUB_TYPE(Enum, metaclass=TypesEnumMeta):
+        PASS = 100
+        THROW_IN = 101
+        FREE_KICK = 102
+        CORNER_SHORT = 103
+        GOAL_KICK = 104
+        GK_THROW = 105
+        KICK_OFF = 106
+        OFFSIDE_PASS = 107
+        LAUNCH = 108
+
+    class CROSS_SUB_TYPE(Enum, metaclass=TypesEnumMeta):
+        CROSS = 200
+        CORNER_CROSSED = 201
+        FREE_KICK_CROSSED = 202
+        CROSS_BLOCKED = 203
+        CUTBACK_CROSS = 204
+        THROW_IN_CROSSED = 205
+
     def _create_events(
         self, event_factory: EventFactory, **generic_event_kwargs
     ) -> List[Event]:
         # Determine result based on SciSports data
-        result_name = self.raw_event.get("resultName", "")
-        if result_name == "SUCCESSFUL":
+        result = RESULT(self.raw_event["resultId"])
+        if result == RESULT.SUCCESSFUL:
             result = PassResult.COMPLETE
-        elif result_name == "UNSUCCESSFUL":
+        elif result == RESULT.UNSUCCESSFUL:
             result = PassResult.INCOMPLETE
         else:
-            result = PassResult.COMPLETE  # Default to complete
+            raise DeserializationError(f"Unknown pass result: {result}")
 
         # Add qualifiers based on event type
         qualifiers = []
-        base_type_id = self.raw_event.get("baseTypeId")
+        event_type = EVENT_TYPE(self.raw_event["baseTypeId"])
 
-        if base_type_id == EVENT_TYPE.CROSS:
+        if event_type == EVENT_TYPE.CROSS:
             qualifiers.append(PassQualifier(value=PassType.CROSS))
 
-        sub_type_id = self.raw_event.get("subTypeId")
-        if sub_type_id == 106:  # Kick off
-            qualifiers.append(SetPieceQualifier(value=SetPieceType.KICK_OFF))
-        elif sub_type_id == 108:  # Launch
-            qualifiers.append(PassQualifier(value=PassType.LAUNCH))
-        elif sub_type_id == 107:  # Offside pass
-            result = PassResult.OFFSIDE
+        # Handle all pass subtypes according to SciSports documentation
+        sub_type_id = self.raw_event["subTypeId"]
+
+        # Define mappings using enum values
+        PASS_QUALIFIER_MAPPING = {
+            PASS.SUB_TYPE.PASS: [],  # Regular open play pass
+            PASS.SUB_TYPE.THROW_IN: [
+                SetPieceQualifier(value=SetPieceType.THROW_IN)
+            ],
+            PASS.SUB_TYPE.FREE_KICK: [
+                SetPieceQualifier(value=SetPieceType.FREE_KICK)
+            ],
+            PASS.SUB_TYPE.CORNER_SHORT: [
+                SetPieceQualifier(value=SetPieceType.CORNER_KICK)
+            ],
+            PASS.SUB_TYPE.GOAL_KICK: [
+                SetPieceQualifier(value=SetPieceType.GOAL_KICK)
+            ],
+            PASS.SUB_TYPE.GK_THROW: [
+                PassQualifier(value=PassType.LAUNCH)
+            ],  # Goalkeeper Throw
+            PASS.SUB_TYPE.KICK_OFF: [
+                SetPieceQualifier(value=SetPieceType.KICK_OFF)
+            ],
+            PASS.SUB_TYPE.OFFSIDE_PASS: PassResult.OFFSIDE,  # Offside Pass
+            PASS.SUB_TYPE.LAUNCH: [
+                PassQualifier(value=PassType.LAUNCH)
+            ],  # Launch Pass
+        }
+
+        CROSS_QUALIFIER_MAPPING = {
+            PASS.CROSS_SUB_TYPE.CROSS: [
+                PassQualifier(value=PassType.CROSS)
+            ],  # Regular cross
+            PASS.CROSS_SUB_TYPE.CORNER_CROSSED: [
+                SetPieceQualifier(value=SetPieceType.CORNER_KICK),
+                PassQualifier(value=PassType.CROSS),
+            ],
+            PASS.CROSS_SUB_TYPE.FREE_KICK_CROSSED: [
+                SetPieceQualifier(value=SetPieceType.FREE_KICK),
+                PassQualifier(value=PassType.CROSS),
+            ],
+            PASS.CROSS_SUB_TYPE.CROSS_BLOCKED: PassResult.INCOMPLETE,  # Blocked cross
+            PASS.CROSS_SUB_TYPE.CUTBACK_CROSS: [
+                PassQualifier(value=PassType.CROSS)
+            ],  # Cross cutback
+            PASS.CROSS_SUB_TYPE.THROW_IN_CROSSED: [
+                SetPieceQualifier(value=SetPieceType.THROW_IN),
+                PassQualifier(value=PassType.CROSS),
+            ],
+        }
+
+        # Convert sub_type_id to enum and apply mapping
+        # First try pass sub types
+        if sub_type_id in [e.value for e in PASS.SUB_TYPE]:
+            sub_type_enum = PASS.SUB_TYPE(sub_type_id)
+            if sub_type_enum in PASS_QUALIFIER_MAPPING:
+                value = PASS_QUALIFIER_MAPPING[sub_type_enum]
+                if isinstance(value, list):
+                    qualifiers.extend(value)
+                else:
+                    result = value
+        # Then try cross sub types
+        elif sub_type_id in [e.value for e in PASS.CROSS_SUB_TYPE]:
+            cross_sub_type_enum = PASS.CROSS_SUB_TYPE(sub_type_id)
+            if cross_sub_type_enum in CROSS_QUALIFIER_MAPPING:
+                value = CROSS_QUALIFIER_MAPPING[cross_sub_type_enum]
+                if isinstance(value, list):
+                    qualifiers.extend(value)
+                else:
+                    result = value
+        elif sub_type_id is not None:
+            # Unknown sub_type_id - let the enum constructor raise a proper error
+            # This will trigger TypesEnumMeta's error handling
+            PASS.SUB_TYPE(sub_type_id)
 
         # Add body part qualifiers if available
         body_part_id = self.raw_event.get("bodyPartId")
         if body_part_id is not None:
-            body_part = BODY_PART_MAPPING.get(body_part_id, BodyPart.OTHER)
+            body_part_enum = BODY_PART(body_part_id)
+            body_part = BODY_PART_MAPPING.get(body_part_enum, BodyPart.OTHER)
             qualifiers.append(BodyPartQualifier(value=body_part))
             if body_part == BodyPart.HEAD:
                 qualifiers.append(PassQualifier(value=PassType.HEAD_PASS))
@@ -341,10 +503,7 @@ class PASS(EVENT):
             # Check if receiver is on the same team
             receiver_team_id = self.raw_event.get("receiverTeamId")
             if receiver_team_id and str(receiver_team_id) == str(team.team_id):
-                for p in team.players:
-                    if p.player_id == str(receiver_id):
-                        receiver_player = p
-                        break
+                receiver_player = team.get_player_by_id(str(receiver_id))
 
         pass_event = event_factory.build_pass(
             result=result,
@@ -360,39 +519,74 @@ class PASS(EVENT):
 class SHOT(EVENT):
     """SciSports 6/Shot event."""
 
+    class SUB_TYPE(Enum, metaclass=TypesEnumMeta):
+        SHOT = 600
+        SHOT_FREE_KICK = 601
+        SHOT_PENALTY = 602
+        SHOT_CORNER = 603
+
+    class RESULT_TYPE(Enum, metaclass=TypesEnumMeta):
+        """Shot result types from shotTypeId"""
+
+        UNKNOWN = -2
+        NOT_APPLICABLE = -1
+        WIDE = 1
+        POST = 2
+        ON_TARGET = 3
+        BLOCKED = 4
+
     def _create_events(
         self, event_factory: EventFactory, **generic_event_kwargs
     ) -> List[Event]:
-        # Determine shot result based on SciSports data
+        qualifiers = []
         result = ShotResult.OFF_TARGET  # Default assumption
 
-        # Check result from shotTypeName first
-        shot_type_name = self.raw_event.get("shotTypeName", "")
-        if shot_type_name == "GOAL":
+        # Primary result determination based on resultId (successful/unsuccessful)
+        result_id = self.raw_event.get("resultId")
+
+        # According to documentation: Shot (6) -> Shot (600) -> Unsuccessful (0) / Successful (1)
+        # Successful (1) = goal, Unsuccessful (0) = not a goal
+        if result_id == RESULT.SUCCESSFUL:
             result = ShotResult.GOAL
-        elif shot_type_name == "SAVED":
-            result = ShotResult.SAVED
-        elif shot_type_name in ["WIDE", "OVER"]:
-            result = ShotResult.OFF_TARGET
-        elif shot_type_name == "POST":
-            result = ShotResult.POST
-        elif shot_type_name == "BLOCKED":
-            result = ShotResult.BLOCKED
+        elif result_id == RESULT.UNSUCCESSFUL:
+            # For unsuccessful shots, determine specific result type from shotTypeId
+            shot_type_id = self.raw_event.get("shotTypeId")
+            if shot_type_id is not None:
+                shot_result_enum = SHOT.RESULT_TYPE(shot_type_id)
+                # Map shotTypeId to specific shot results
+                if shot_result_enum == SHOT.RESULT_TYPE.WIDE:
+                    result = ShotResult.OFF_TARGET
+                elif shot_result_enum == SHOT.RESULT_TYPE.POST:
+                    result = ShotResult.POST
+                elif shot_result_enum == SHOT.RESULT_TYPE.ON_TARGET:
+                    result = (
+                        ShotResult.SAVED
+                    )  # On target but unsuccessful = saved
+                elif shot_result_enum == SHOT.RESULT_TYPE.BLOCKED:
+                    result = ShotResult.BLOCKED
 
-        # Also check if this shot resulted in a goal by looking at labels
-        labels = self.raw_event.get("labels", [])
-        # Labels can be either a list of integers or a list of dicts
-        for label in labels:
-            if isinstance(label, dict) and label.get("labelName") == "goal":
-                result = ShotResult.GOAL
-                break
-            # TODO: Map integer label IDs to meaningful labels if needed
+        # Add set piece qualifiers based on sub_type
+        sub_type_id = self.raw_event.get("subTypeId")
+        if sub_type_id is not None:
+            sub_type_enum = SHOT.SUB_TYPE(sub_type_id)
+            if sub_type_enum == SHOT.SUB_TYPE.SHOT_FREE_KICK:
+                qualifiers.append(
+                    SetPieceQualifier(value=SetPieceType.FREE_KICK)
+                )
+            elif sub_type_enum == SHOT.SUB_TYPE.SHOT_PENALTY:
+                qualifiers.append(
+                    SetPieceQualifier(value=SetPieceType.PENALTY)
+                )
+            elif sub_type_enum == SHOT.SUB_TYPE.SHOT_CORNER:
+                qualifiers.append(
+                    SetPieceQualifier(value=SetPieceType.CORNER_KICK)
+                )
 
-        # Add body part qualifiers if available
-        qualifiers = []
+        # Add body part qualifiers
         body_part_id = self.raw_event.get("bodyPartId")
         if body_part_id is not None:
-            body_part = BODY_PART_MAPPING.get(body_part_id, BodyPart.OTHER)
+            body_part_enum = BODY_PART(body_part_id)
+            body_part = BODY_PART_MAPPING.get(body_part_enum, BodyPart.OTHER)
             qualifiers.append(BodyPartQualifier(value=body_part))
 
         # Get result coordinates (where the shot ended up)
@@ -564,6 +758,23 @@ class BLOCK(EVENT):
 class FOUL(EVENT):
     """SciSports 7/Foul event."""
 
+    class TYPE(Enum, metaclass=TypesEnumMeta):
+        """Foul types from foulTypeId"""
+
+        UNKNOWN = -2
+        NOT_APPLICABLE = -1
+        HANDS = 1
+        TACKLE = 2
+        AERIAL = 3
+        PROTESTING = 4
+        PASSING = 5
+        OFFSIDE = 6
+        UNSPORTSMANLIKE = 7
+        DANGEROUS = 8
+        BENCH = 9
+        OBSTRUCTION = 10
+        NONE = 11
+
     def _create_events(
         self, event_factory: EventFactory, **generic_event_kwargs
     ) -> List[Event]:
@@ -577,6 +788,11 @@ class FOUL(EVENT):
 
 class CARD(EVENT):
     """SciSports 15/Card event."""
+
+    class SUB_TYPE(Enum, metaclass=TypesEnumMeta):
+        YELLOW_CARD = 1500
+        SECOND_YELLOW = 1501
+        RED_CARD = 1502
 
     def _create_events(
         self, event_factory: EventFactory, **generic_event_kwargs
@@ -605,6 +821,10 @@ class CARD(EVENT):
 
 class SUBSTITUTE(EVENT):
     """SciSports 16/Substitute event."""
+
+    class SUB_TYPE(Enum, metaclass=TypesEnumMeta):
+        SUBBED_OUT = 1600
+        SUBBED_IN = 1601
 
     def _create_events(
         self, event_factory: EventFactory, **generic_event_kwargs
@@ -741,6 +961,9 @@ def _get_body_part_qualifiers(raw_event: Dict) -> List[BodyPartQualifier]:
 
 def get_event_type(base_type_id: int) -> EventType:
     """Get kloppy EventType from SciSports baseTypeId"""
+    # Convert base_type_id to EVENT_TYPE enum
+    event_type_enum = EVENT_TYPE(base_type_id)
+
     event_type_mapping = {
         EVENT_TYPE.PASS: EventType.PASS,
         EVENT_TYPE.CROSS: EventType.PASS,
@@ -762,12 +985,12 @@ def get_event_type(base_type_id: int) -> EventType:
         EVENT_TYPE.OTHER: EventType.GENERIC,  # Other events as generic
     }
 
-    if base_type_id not in event_type_mapping:
+    if event_type_enum not in event_type_mapping:
         raise DeserializationError(
             f"Unknown SciSports Event Type: {base_type_id}"
         )
 
-    event_type = event_type_mapping[base_type_id]
+    event_type = event_type_mapping[event_type_enum]
     if event_type is None:
         raise DeserializationError(
             f"Unsupported SciSports Event Type: {base_type_id}"
@@ -778,17 +1001,19 @@ def get_event_type(base_type_id: int) -> EventType:
 
 def get_body_part(body_part_id: int) -> BodyPart:
     """Get kloppy BodyPart from SciSports bodyPartId"""
-    return BODY_PART_MAPPING.get(body_part_id, BodyPart.OTHER)
+    body_part_enum = BODY_PART(body_part_id)
+    return BODY_PART_MAPPING.get(body_part_enum, BodyPart.OTHER)
 
 
 def get_position_type(position_type_id: int) -> PositionType:
     """Get kloppy PositionType from SciSports positionTypeId"""
-    return POSITION_TYPE_MAPPING.get(position_type_id)
+    position_enum = POSITION_TYPE(position_type_id)
+    return POSITION_TYPE_MAPPING.get(position_enum)
 
 
-def get_set_piece_type(base_type_id: int) -> SetPieceType:
-    """Get kloppy SetPieceType from SciSports baseTypeId"""
-    return SET_PIECE_TYPE_MAPPING.get(base_type_id)
+# def get_set_piece_type(base_type_id: int) -> SetPieceType:
+#     """Get kloppy SetPieceType from SciSports baseTypeId"""
+#     return SET_PIECE_TYPE_MAPPING.get(base_type_id)
 
 
 def get_formation_type(formation_type_id: int) -> FormationType:
@@ -805,16 +1030,19 @@ def event_decoder(raw_event: Union[Dict, int]) -> Optional[EVENT]:
     base_type_id = raw_event.get("baseTypeId")
     sub_type_id = raw_event.get("subTypeId")
 
+    # Convert base_type_id to EVENT_TYPE enum
+    event_type = EVENT_TYPE(base_type_id)
+
     # Skip metadata-only events
-    if base_type_id == EVENT_TYPE.PERIOD:
+    if event_type == EVENT_TYPE.PERIOD:
         return None
 
     # Skip PLAYER_STARTING_POSITION events as they are handled in metadata
-    if base_type_id == EVENT_TYPE.POSITION and sub_type_id == 1800:
+    if event_type == EVENT_TYPE.POSITION and sub_type_id == 1800:
         return None
 
     # Skip TEAM_STARTING_FORMATION events as they are handled in metadata
-    if base_type_id == EVENT_TYPE.FORMATION and sub_type_id == 1700:
+    if event_type == EVENT_TYPE.FORMATION and sub_type_id == 1700:
         return None
 
     type_to_event = {
@@ -836,5 +1064,5 @@ def event_decoder(raw_event: Union[Dict, int]) -> Optional[EVENT]:
         EVENT_TYPE.POSITION: POSITION,
     }
 
-    event_creator = type_to_event.get(base_type_id, EVENT)
+    event_creator = type_to_event.get(event_type, EVENT)
     return event_creator(raw_event)

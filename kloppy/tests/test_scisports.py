@@ -7,6 +7,7 @@ from kloppy import scisports
 from kloppy.domain import (
     BallState,
     BodyPart,
+    BodyPartQualifier,
     DatasetFlag,
     DatasetType,
     Dimension,
@@ -14,10 +15,14 @@ from kloppy.domain import (
     EventType,
     MetricPitchDimensions,
     Orientation,
+    PassResult,
+    PassType,
     Point,
     Provider,
+    SetPieceType,
     Time,
     build_coordinate_system,
+    PassQualifier,
 )
 from kloppy.domain.models.event import (
     PassEvent,
@@ -26,6 +31,7 @@ from kloppy.domain.models.event import (
     FoulCommittedEvent,
     CardEvent,
     SubstitutionEvent,
+    SetPieceQualifier,
 )
 
 
@@ -205,40 +211,119 @@ class TestSciSportsPassEvent:
         # Based on our analysis, should have 816 pass events (PASS + CROSS)
         assert len(events) == 816
 
-    def test_open_play_pass(self, dataset: EventDataset):
-        """Verify specific attributes of simple open play pass"""
-        pass_event = dataset.get_event_by_id("24")
-        assert pass_event is not None
-        assert isinstance(pass_event, PassEvent)
+    def test_kick_off_pass(self, dataset: EventDataset):
+        kick_off_pass = dataset.get_event_by_id("24")
 
         # Check basic properties
-        assert pass_event.event_type == EventType.PASS
-        assert pass_event.player.name == "Thierno Amadou Balde"
-        assert pass_event.team.name == "KRC Genk U16"
+        assert kick_off_pass.event_type == EventType.PASS
+        assert kick_off_pass.player.name == "Thierno Amadou Balde"
+        assert kick_off_pass.team.name == "KRC Genk U16"
+        assert kick_off_pass.coordinates == Point(0.0, -0.0)
+        assert kick_off_pass.timestamp == timedelta(seconds=0.07)
 
-        # Check coordinates
-        assert pass_event.coordinates == Point(0.0, -0.0)
+        assert kick_off_pass.receiver_coordinates == Point(x=-13.65, y=0.68)
+        assert kick_off_pass.receiver_player.id == "124"
 
-        # Check timing
-        assert pass_event.timestamp == timedelta(seconds=0.07)
-
-    def test_pass_with_end_coordinates(self, dataset: EventDataset):
-        """Test passes that have end coordinates"""
-        # Find a pass with different start/end coordinates
+    def test_pass_result_checks(self, dataset: EventDataset):
+        """Test pass result types (complete/incomplete)"""
         pass_events = dataset.find_all("pass")
-        pass_with_movement = None
 
-        for event in pass_events:
-            raw_event = event.raw_event
-            start_x = raw_event.get("startPosXM", 0.0)
-            end_x = raw_event.get("endPosXM", 0.0)
-            if abs(start_x - end_x) > 1.0:  # Significant movement
-                pass_with_movement = event
-                break
+        # Find events with different results
+        complete_passes = [
+            e for e in pass_events if e.result == PassResult.COMPLETE
+        ]
+        incomplete_passes = [
+            e for e in pass_events if e.result == PassResult.INCOMPLETE
+        ]
 
-        assert pass_with_movement is not None
-        # The event should have coordinate information
-        assert pass_with_movement.coordinates is not None
+        # Should have both types in the dataset
+        assert complete_passes == 631
+        assert incomplete_passes == 178
+
+    def test_set_piece_checks(self, dataset: EventDataset):
+        """Test different set piece types"""
+        pass_events = dataset.find_all("pass")
+
+        # Find different set piece types
+        kick_offs = [
+            e
+            for e in pass_events
+            if SetPieceType.KICK_OFF
+            in e.get_qualifier_values(SetPieceQualifier)
+        ]
+        throw_ins = [
+            e
+            for e in pass_events
+            if SetPieceType.THROW_IN
+            in e.get_qualifier_values(SetPieceQualifier)
+        ]
+        free_kicks = [
+            e
+            for e in pass_events
+            if SetPieceType.FREE_KICK
+            in e.get_qualifier_values(SetPieceQualifier)
+        ]
+        corners = [
+            e
+            for e in pass_events
+            if SetPieceType.CORNER_KICK
+            in e.get_qualifier_values(SetPieceQualifier)
+        ]
+        goal_kicks = [
+            e
+            for e in pass_events
+            if SetPieceType.GOAL_KICK
+            in e.get_qualifier_values(SetPieceQualifier)
+        ]
+
+        assert len(kick_offs) == 7
+        assert len(throw_ins) == 36
+        assert len(free_kicks) == 41
+        assert len(corners) == 10
+        assert len(goal_kicks) == 22
+
+    def test_cross_checks(self, dataset: EventDataset):
+        """Test cross-type passes"""
+        pass_events = dataset.find_all("pass")
+
+        crosses = [
+            e
+            for e in pass_events
+            if PassType.CROSS in e.get_qualifier_values(PassQualifier)
+        ]
+
+        assert len(crosses) == 24
+
+    def test_body_part_checks(self, dataset: EventDataset):
+        """Test body part qualifiers for passes"""
+        pass_events = dataset.find_all("pass")
+
+        right_foot_passes = [
+            e
+            for e in pass_events
+            if BodyPart.RIGHT_FOOT in e.get_qualifier_values(BodyPartQualifier)
+        ]
+        left_foot_passes = [
+            e
+            for e in pass_events
+            if BodyPart.LEFT_FOOT in e.get_qualifier_values(BodyPartQualifier)
+        ]
+        head_passes = [
+            e
+            for e in pass_events
+            if BodyPart.HEAD in e.get_qualifier_values(BodyPartQualifier)
+        ]
+        other_body_part_passes = [
+            e
+            for e in pass_events
+            if BodyPart.OTHER in e.get_qualifier_values(BodyPartQualifier)
+        ]
+
+        # Find passes with body part information
+        assert len(right_foot_passes) == 0
+        assert len(left_foot_passes) == 0
+        assert len(head_passes) == 0
+        assert len(other_body_part_passes) == 758
 
 
 class TestSciSportsShotEvent:
