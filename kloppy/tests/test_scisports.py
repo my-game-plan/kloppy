@@ -52,7 +52,7 @@ from kloppy.domain.models.event import (
 
 @pytest.fixture(scope="module")
 def dataset() -> EventDataset:
-    """Load SciSports data for KRC Genk U16 vs Sint-Truidense VV U16"""
+    """Load SciSports data for Team Alpha vs Team Beta"""
     base_dir = Path(__file__).parent
     dataset = scisports.load(
         event_data=base_dir / "files" / "scisports_events.json",
@@ -81,8 +81,8 @@ class TestSciSportsMetadata:
         """It should create the teams and player objects"""
         # There should be two teams with the correct names
         assert len(dataset.metadata.teams) == 2
-        assert dataset.metadata.teams[0].name == "KRC Genk U16"
-        assert dataset.metadata.teams[1].name == "Sint-Truidense VV U16"
+        assert dataset.metadata.teams[0].name == "Team Alpha"
+        assert dataset.metadata.teams[1].name == "Team Beta"
 
         # The teams should have the correct players
         home_team = dataset.metadata.teams[0]
@@ -97,7 +97,7 @@ class TestSciSportsMetadata:
         assert player_116 is not None
         assert player_116.player_id == "116"
         assert player_116.jersey_no == 21
-        assert player_116.name == "Elias Gonzalez Fernandez"
+        assert player_116.name == "Player 06"
 
     def test_starting_players(self, dataset):
         """It should correctly identify starting players vs substitutes"""
@@ -119,15 +119,15 @@ class TestSciSportsMetadata:
         assert len(away_subs) == 3
 
         # Check specific examples - players who were substituted out should be starters
-        # George Olupinsaiye (121) was substituted out, so should be a starter
-        george = home_team.get_player_by_id("121")
-        assert george is not None
-        assert george.starting
+        # Player 09 (121) was substituted out, so should be a starter
+        player_121 = home_team.get_player_by_id("121")
+        assert player_121 is not None
+        assert player_121.starting
 
-        # Kimonekene Jeremy Nganzadi (122) was substituted in, so should not be a starter
-        kimonekene = home_team.get_player_by_id("122")
-        assert kimonekene is not None
-        assert not kimonekene.starting
+        # Player 18 (122) was substituted in, so should not be a starter
+        player_122 = home_team.get_player_by_id("122")
+        assert player_122 is not None
+        assert not player_122.starting
 
     def test_periods(self, dataset):
         """It should create the periods"""
@@ -180,9 +180,9 @@ class TestSciSportsEvent:
         event = dataset.get_event_by_id("24")
         assert event is not None
         assert event.event_id == "24"
-        assert event.team.name == "KRC Genk U16"
-        assert event.ball_owning_team.name == "KRC Genk U16"
-        assert event.player.name == "Thierno Amadou Balde"
+        assert event.team.name == "Team Alpha"
+        assert event.ball_owning_team.name == "Team Alpha"
+        assert event.player.name == "Player 26"
         assert event.coordinates == Point(0.0, -0.0)
         assert event.raw_event["eventId"] == 24
         assert event.period.id == 1
@@ -231,8 +231,8 @@ class TestSciSportsPassEvent:
 
         # Check basic properties
         assert kick_off_pass.event_type == EventType.PASS
-        assert kick_off_pass.player.name == "Thierno Amadou Balde"
-        assert kick_off_pass.team.name == "KRC Genk U16"
+        assert kick_off_pass.player.name == "Player 26"
+        assert kick_off_pass.team.name == "Team Alpha"
         assert kick_off_pass.coordinates == Point(0.0, -0.0)
         assert kick_off_pass.timestamp == timedelta(seconds=0.07)
 
@@ -358,8 +358,8 @@ class TestSciSportsShotEvent:
 
         # Check basic properties
         assert shot_event.event_type == EventType.SHOT
-        assert shot_event.player.name == "Matteo De Notarpietro"
-        assert shot_event.team.name == "KRC Genk U16"
+        assert shot_event.player.name == "Player 23"
+        assert shot_event.team.name == "Team Alpha"
 
         assert shot_event.coordinates == Point(45.15, -5.44)
         assert shot_event.timestamp == timedelta(seconds=197.6)
@@ -411,8 +411,8 @@ class TestSciSportsInterceptionEvent:
 
         # Check basic properties
         assert interception_event.event_type == EventType.INTERCEPTION
-        assert interception_event.player.name == "Kas Jackers"
-        assert interception_event.team.name == "Sint-Truidense VV U16"
+        assert interception_event.player.name == "Player 16"
+        assert interception_event.team.name == "Team Beta"
 
         # Check coordinates
         assert interception_event.coordinates == Point(-10.5, 20.4)
@@ -458,8 +458,8 @@ class TestSciSportsFoulEvent:
 
         # Check basic properties
         assert foul_event.event_type == EventType.FOUL_COMMITTED
-        assert foul_event.player.name == "Matis Gomez Rebollo"
-        assert foul_event.team.name == "KRC Genk U16"
+        assert foul_event.player.name == "Player 22"
+        assert foul_event.team.name == "Team Alpha"
 
         # Check coordinates
         assert foul_event.coordinates == Point(26.25, -25.16)
@@ -484,8 +484,8 @@ class TestSciSportsCardEvent:
 
         # Check basic properties
         assert card_event.event_type == EventType.CARD
-        assert card_event.player.name == "Ebrima Ceesay"
-        assert card_event.team.name == "KRC Genk U16"
+        assert card_event.player.name == "Player 04"
+        assert card_event.team.name == "Team Alpha"
 
         # Check that this was originally a card
         assert card_event.raw_event.get("baseTypeName") == "CARD"
@@ -544,8 +544,8 @@ class TestSciSportsCarryEvent:
 
         # Check basic properties
         assert carry_event.event_type == EventType.CARRY
-        assert carry_event.player.name == "Matis Gomez Rebollo"
-        assert carry_event.team.name == "KRC Genk U16"
+        assert carry_event.player.name == "Player 22"
+        assert carry_event.team.name == "Team Alpha"
         assert carry_event.coordinates == Point(-9.45, -12.92)
 
         # Check that this was originally a dribble with subtype 300
@@ -580,8 +580,8 @@ class TestSciSportsTakeOnEvent:
 
         # Check basic properties
         assert takeon_event.event_type == EventType.TAKE_ON
-        assert takeon_event.player.name == "Kas Jackers"
-        assert takeon_event.team.name == "Sint-Truidense VV U16"
+        assert takeon_event.player.name == "Player 16"
+        assert takeon_event.team.name == "Team Beta"
         assert takeon_event.coordinates == Point(-3.15, 27.88)
 
         # Check that this was originally a dribble with subtype 301
@@ -620,8 +620,8 @@ class TestSciSportsClearanceEvent:
 
         # Check basic properties
         assert clearance_event.event_type == EventType.CLEARANCE
-        assert clearance_event.player.name == "Odin Janssen"
-        assert clearance_event.team.name == "Sint-Truidense VV U16"
+        assert clearance_event.player.name == "Player 24"
+        assert clearance_event.team.name == "Team Beta"
         assert clearance_event.coordinates == Point(-28.35, 23.8)
 
         # Check that this was originally a clearance
@@ -644,8 +644,8 @@ class TestSciSportsMiscontrolEvent:
 
         # Check basic properties
         assert miscontrol_event.event_type == EventType.MISCONTROL
-        assert miscontrol_event.player.name == "Xavier Zaremba"
-        assert miscontrol_event.team.name == "Sint-Truidense VV U16"
+        assert miscontrol_event.player.name == "Player 28"
+        assert miscontrol_event.team.name == "Team Beta"
         assert miscontrol_event.coordinates == Point(-24.15, 17.68)
 
         # Check that this was originally a bad touch
@@ -668,8 +668,8 @@ class TestSciSportsGoalkeeperEvent:
 
         # Check basic properties
         assert gk_event.event_type == EventType.GOALKEEPER
-        assert gk_event.player.name == "Elias Gonzalez Fernandez"
-        assert gk_event.team.name == "KRC Genk U16"
+        assert gk_event.player.name == "Player 06"
+        assert gk_event.team.name == "Team Alpha"
         assert gk_event.coordinates == Point(-45.15, -6.12)
 
         # Check that this was originally a keeper save
