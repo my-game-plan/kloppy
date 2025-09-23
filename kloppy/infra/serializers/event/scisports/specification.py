@@ -611,10 +611,14 @@ class SHOT(EVENT):
 class DRIBBLE(EVENT):
     """SciSports 3/Dribble event."""
 
+    class SUB_TYPE(Enum, metaclass=TypesEnumMeta):
+        CARRY = 300
+        TAKE_ON = 301
+
     def _create_events(
         self, event_factory: EventFactory, **generic_event_kwargs
     ) -> List[Event]:
-        # Get end coordinates for the carry
+        # Get end coordinates
         end_x = self.raw_event.get("endPosXM")
         end_y = self.raw_event.get("endPosYM")
         end_coordinates = (
@@ -630,14 +634,49 @@ class DRIBBLE(EVENT):
             # Use Time object addition which handles period boundaries
             end_timestamp = end_timestamp + timedelta(milliseconds=duration)
 
-        carry_event = event_factory.build_carry(
-            result=CarryResult.COMPLETE,
-            qualifiers=None,
-            end_timestamp=end_timestamp,
-            end_coordinates=end_coordinates,
-            **generic_event_kwargs,
-        )
-        return [carry_event]
+        # Determine event type based on subtype
+        sub_type_id = self.raw_event.get("subTypeId")
+        sub_type = DRIBBLE.SUB_TYPE(sub_type_id)
+
+        # Determine result based on SciSports data
+        result_id = self.raw_event.get("resultId", 1)  # Default to successful
+        result_enum = RESULT(result_id)
+
+        if sub_type == DRIBBLE.SUB_TYPE.CARRY:
+            # Create CarryEvent
+            if result_enum == RESULT.SUCCESSFUL:
+                carry_result = CarryResult.COMPLETE
+            else:
+                carry_result = CarryResult.INCOMPLETE
+
+            carry_event = event_factory.build_carry(
+                result=carry_result,
+                qualifiers=None,
+                end_timestamp=end_timestamp,
+                end_coordinates=end_coordinates,
+                **generic_event_kwargs,
+            )
+            return [carry_event]
+
+        elif sub_type == DRIBBLE.SUB_TYPE.TAKE_ON:
+            # Create TakeOnEvent
+            if result_enum == RESULT.SUCCESSFUL:
+                takeon_result = TakeOnResult.COMPLETE
+            else:
+                takeon_result = TakeOnResult.INCOMPLETE
+
+            takeon_event = event_factory.build_take_on(
+                result=takeon_result,
+                qualifiers=None,
+                **generic_event_kwargs,
+            )
+            return [takeon_event]
+
+        else:
+            # Unknown subtype, fallback to generic
+            return super()._create_events(
+                event_factory, **generic_event_kwargs
+            )
 
 
 class INTERCEPTION(EVENT):
@@ -741,19 +780,19 @@ class BLOCK(EVENT):
     def _create_events(
         self, event_factory: EventFactory, **generic_event_kwargs
     ) -> List[Event]:
-        # Blocks are treated as clearances
+        # Blocks are treated as interceptions
         qualifiers = []
         body_part_id = self.raw_event.get("bodyPartId")
         if body_part_id is not None:
             body_part = BODY_PART_MAPPING.get(body_part_id, BodyPart.OTHER)
             qualifiers.append(BodyPartQualifier(value=body_part))
 
-        clearance_event = event_factory.build_clearance(
-            result=None,
+        interception_event = event_factory.build_interception(
+            result=InterceptionResult.LOST,
             qualifiers=qualifiers,
             **generic_event_kwargs,
         )
-        return [clearance_event]
+        return [interception_event]
 
 
 class FOUL(EVENT):
@@ -958,46 +997,6 @@ def _get_body_part_qualifiers(raw_event: Dict) -> List[BodyPartQualifier]:
         body_part = BODY_PART_MAPPING.get(body_part_id, BodyPart.OTHER)
         qualifiers.append(BodyPartQualifier(value=body_part))
     return qualifiers
-
-
-def get_event_type(base_type_id: int) -> EventType:
-    """Get kloppy EventType from SciSports baseTypeId"""
-    # Convert base_type_id to EVENT_TYPE enum
-    event_type_enum = EVENT_TYPE(base_type_id)
-
-    event_type_mapping = {
-        EVENT_TYPE.PASS: EventType.PASS,
-        EVENT_TYPE.CROSS: EventType.PASS,
-        EVENT_TYPE.DRIBBLE: EventType.CARRY,
-        EVENT_TYPE.DEFENSIVE_DUEL: EventType.DUEL,
-        EVENT_TYPE.INTERCEPTION: EventType.INTERCEPTION,
-        EVENT_TYPE.SHOT: EventType.SHOT,
-        EVENT_TYPE.FOUL: EventType.FOUL_COMMITTED,
-        EVENT_TYPE.BALL_DEAD: EventType.BALL_OUT,
-        EVENT_TYPE.CLEARANCE: EventType.CLEARANCE,
-        EVENT_TYPE.BAD_TOUCH: EventType.MISCONTROL,
-        EVENT_TYPE.KEEPER_SAVE: EventType.GOALKEEPER,
-        EVENT_TYPE.BLOCK: EventType.CLEARANCE,
-        EVENT_TYPE.PERIOD: None,  # Metadata only
-        EVENT_TYPE.CARD: EventType.CARD,
-        EVENT_TYPE.SUBSTITUTE: EventType.SUBSTITUTION,
-        EVENT_TYPE.FORMATION: EventType.FORMATION_CHANGE,
-        EVENT_TYPE.POSITION: EventType.FORMATION_CHANGE,  # Position changes are formation changes
-        EVENT_TYPE.OTHER: EventType.GENERIC,  # Other events as generic
-    }
-
-    if event_type_enum not in event_type_mapping:
-        raise DeserializationError(
-            f"Unknown SciSports Event Type: {base_type_id}"
-        )
-
-    event_type = event_type_mapping[event_type_enum]
-    if event_type is None:
-        raise DeserializationError(
-            f"Unsupported SciSports Event Type: {base_type_id}"
-        )
-
-    return event_type
 
 
 def get_body_part(body_part_id: int) -> BodyPart:

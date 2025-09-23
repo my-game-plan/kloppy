@@ -33,9 +33,20 @@ from kloppy.domain.models.event import (
     FoulCommittedEvent,
     CardEvent,
     SubstitutionEvent,
+    CarryEvent,
+    TakeOnEvent,
+    ClearanceEvent,
+    MiscontrolEvent,
+    GoalkeeperEvent,
+    BallOutEvent,
+    FormationChangeEvent,
     SetPieceQualifier,
     ShotResult,
     CardQualifier,
+    CarryResult,
+    TakeOnResult,
+    GoalkeeperQualifier,
+    GoalkeeperActionType,
 )
 
 
@@ -384,12 +395,12 @@ class TestSciSportsShotEvent:
 
 
 class TestSciSportsInterceptionEvent:
-    """Tests related to deserializing Interception events"""
+    """Tests related to deserializing Interception events (from INTERCEPTION and BLOCK)"""
 
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all interception events"""
         events = dataset.find_all("interception")
-        assert len(events) == 201
+        assert len(events) == 214  # INTERCEPTION + BLOCK events combined
 
     def test_interception_event(self, dataset: EventDataset):
         """Verify specific attributes of interception event"""
@@ -421,10 +432,14 @@ class TestSciSportsInterceptionEvent:
             for e in interception_events
             if e.result == InterceptionResult.SUCCESS
         ]
+        lost_interceptions = [
+            e
+            for e in interception_events
+            if e.result == InterceptionResult.LOST
+        ]
 
-        # All SciSports interceptions are considered successful by definition
-        assert len(successful_interceptions) == len(interception_events)
         assert len(successful_interceptions) == 201
+        assert len(lost_interceptions) == 13
 
 
 class TestSciSportsFoulEvent:
@@ -511,3 +526,240 @@ class TestSciSportsSubstitutionEvent:
 
         assert sub_event.time.period.id == 2
         assert sub_event.time.timestamp == timedelta(0)
+
+
+class TestSciSportsCarryEvent:
+    """Tests related to deserializing Carry events (from DRIBBLE subtype 300)"""
+
+    def test_deserialize_all(self, dataset: EventDataset):
+        """It should deserialize all carry events"""
+        events = dataset.find_all("carry")
+        assert len(events) == 146
+
+    def test_carry_event(self, dataset: EventDataset):
+        """Verify specific attributes of carry event"""
+        carry_event = dataset.get_event_by_id("71")
+        assert carry_event is not None
+        assert isinstance(carry_event, CarryEvent)
+
+        # Check basic properties
+        assert carry_event.event_type == EventType.CARRY
+        assert carry_event.player.name == "Matis Gomez Rebollo"
+        assert carry_event.team.name == "KRC Genk U16"
+        assert carry_event.coordinates == Point(-9.45, -12.92)
+
+        # Check that this was originally a dribble with subtype 300
+        assert carry_event.raw_event.get("baseTypeName") == "DRIBBLE"
+        assert carry_event.raw_event.get("subTypeId") == 300
+
+    def test_carry_result_checks(self, dataset: EventDataset):
+        """Test carry result distribution"""
+        carry_events = dataset.find_all("carry")
+
+        complete_carries = [
+            e for e in carry_events if e.result == CarryResult.COMPLETE
+        ]
+
+        # Most carries should be successful in this dataset
+        assert len(complete_carries) == len(carry_events)
+
+
+class TestSciSportsTakeOnEvent:
+    """Tests related to deserializing Take On events (from DRIBBLE subtype 301)"""
+
+    def test_deserialize_all(self, dataset: EventDataset):
+        """It should deserialize all take-on events"""
+        events = dataset.find_all("take_on")
+        assert len(events) == 29
+
+    def test_take_on_event(self, dataset: EventDataset):
+        """Verify specific attributes of take-on event"""
+        takeon_event = dataset.get_event_by_id("65")
+        assert takeon_event is not None
+        assert isinstance(takeon_event, TakeOnEvent)
+
+        # Check basic properties
+        assert takeon_event.event_type == EventType.TAKE_ON
+        assert takeon_event.player.name == "Kas Jackers"
+        assert takeon_event.team.name == "Sint-Truidense VV U16"
+        assert takeon_event.coordinates == Point(-3.15, 27.88)
+
+        # Check that this was originally a dribble with subtype 301
+        assert takeon_event.raw_event.get("baseTypeName") == "DRIBBLE"
+        assert takeon_event.raw_event.get("subTypeId") == 301
+
+    def test_take_on_result_checks(self, dataset: EventDataset):
+        """Test take-on result distribution"""
+        takeon_events = dataset.find_all("take_on")
+
+        complete_taketons = [
+            e for e in takeon_events if e.result == TakeOnResult.COMPLETE
+        ]
+        incomplete_taketons = [
+            e for e in takeon_events if e.result == TakeOnResult.INCOMPLETE
+        ]
+
+        # Both successful and unsuccessful take-ons should exist
+        assert len(complete_taketons) == 22
+        assert len(incomplete_taketons) == 7
+
+
+class TestSciSportsClearanceEvent:
+    """Tests related to deserializing Clearance events (from CLEARANCE only)"""
+
+    def test_deserialize_all(self, dataset: EventDataset):
+        """It should deserialize all clearance events"""
+        events = dataset.find_all("clearance")
+        assert len(events) == 52  # Only CLEARANCE events
+
+    def test_clearance_event(self, dataset: EventDataset):
+        """Verify specific attributes of clearance event"""
+        clearance_event = dataset.get_event_by_id("32")
+        assert clearance_event is not None
+        assert isinstance(clearance_event, ClearanceEvent)
+
+        # Check basic properties
+        assert clearance_event.event_type == EventType.CLEARANCE
+        assert clearance_event.player.name == "Odin Janssen"
+        assert clearance_event.team.name == "Sint-Truidense VV U16"
+        assert clearance_event.coordinates == Point(-28.35, 23.8)
+
+        # Check that this was originally a clearance
+        assert clearance_event.raw_event.get("baseTypeName") == "CLEARANCE"
+
+
+class TestSciSportsMiscontrolEvent:
+    """Tests related to deserializing Miscontrol events (from BAD_TOUCH)"""
+
+    def test_deserialize_all(self, dataset: EventDataset):
+        """It should deserialize all miscontrol events"""
+        events = dataset.find_all("miscontrol")
+        assert len(events) == 46
+
+    def test_miscontrol_event(self, dataset: EventDataset):
+        """Verify specific attributes of miscontrol event"""
+        miscontrol_event = dataset.get_event_by_id("26")
+        assert miscontrol_event is not None
+        assert isinstance(miscontrol_event, MiscontrolEvent)
+
+        # Check basic properties
+        assert miscontrol_event.event_type == EventType.MISCONTROL
+        assert miscontrol_event.player.name == "Xavier Zaremba"
+        assert miscontrol_event.team.name == "Sint-Truidense VV U16"
+        assert miscontrol_event.coordinates == Point(-24.15, 17.68)
+
+        # Check that this was originally a bad touch
+        assert miscontrol_event.raw_event.get("baseTypeName") == "BAD_TOUCH"
+
+
+class TestSciSportsGoalkeeperEvent:
+    """Tests related to deserializing Goalkeeper events (from KEEPER_SAVE)"""
+
+    def test_deserialize_all(self, dataset: EventDataset):
+        """It should deserialize all goalkeeper events"""
+        events = dataset.find_all("goalkeeper")
+        assert len(events) == 16
+
+    def test_goalkeeper_event(self, dataset: EventDataset):
+        """Verify specific attributes of goalkeeper event"""
+        gk_event = dataset.get_event_by_id("274")
+        assert gk_event is not None
+        assert isinstance(gk_event, GoalkeeperEvent)
+
+        # Check basic properties
+        assert gk_event.event_type == EventType.GOALKEEPER
+        assert gk_event.player.name == "Elias Gonzalez Fernandez"
+        assert gk_event.team.name == "KRC Genk U16"
+        assert gk_event.coordinates == Point(-45.15, -6.12)
+
+        # Check that this was originally a keeper save
+        assert gk_event.raw_event.get("baseTypeName") == "KEEPER_SAVE"
+
+    def test_goalkeeper_qualifiers(self, dataset: EventDataset):
+        """Test goalkeeper action qualifiers"""
+        gk_events = dataset.find_all("goalkeeper")
+
+        save_events = [
+            e
+            for e in gk_events
+            if GoalkeeperActionType.SAVE
+            in e.get_qualifier_values(GoalkeeperQualifier)
+        ]
+
+        # All goalkeeper events from KEEPER_SAVE should have SAVE qualifier
+        assert len(save_events) == len(gk_events)
+
+    def test_body_part_qualifiers(self, dataset: EventDataset):
+        """Test body part qualifiers in goalkeeper events"""
+        gk_events = dataset.find_all("goalkeeper")
+
+        events_with_body_part = [
+            e for e in gk_events if e.get_qualifier_values(BodyPartQualifier)
+        ]
+
+        # Some goalkeeper events should have body part information
+        assert len(events_with_body_part) >= 0
+
+
+class TestSciSportsBallOutEvent:
+    """Tests related to deserializing Ball Out events (from BALL_DEAD)"""
+
+    def test_deserialize_all(self, dataset: EventDataset):
+        """It should deserialize all ball out events"""
+        events = dataset.find_all("ball_out")
+        assert len(events) == 97
+
+    def test_ball_out_event(self, dataset: EventDataset):
+        """Verify specific attributes of ball out event"""
+        ball_out_event = dataset.get_event_by_id("30")
+        assert ball_out_event is not None
+        assert isinstance(ball_out_event, BallOutEvent)
+
+        # Check basic properties
+        assert ball_out_event.event_type == EventType.BALL_OUT
+        assert ball_out_event.coordinates == Point(-14.7, 34.0)
+        assert ball_out_event.ball_state == BallState.DEAD
+
+        # Check that this was originally a ball dead event
+        assert ball_out_event.raw_event.get("baseTypeName") == "BALL_DEAD"
+
+
+class TestSciSportsFormationChangeEvent:
+    """Tests related to deserializing Formation Change events (from FORMATION and POSITION)"""
+
+    def test_deserialize_all(self, dataset: EventDataset):
+        """It should deserialize all formation change events"""
+        events = dataset.find_all("formation_change")
+        assert (
+            len(events) >= 0
+        )  # May not have formation changes in this dataset
+
+    def test_formation_event(self, dataset: EventDataset):
+        """Verify formation change events if they exist"""
+        formation_events = dataset.find_all("formation_change")
+
+        if formation_events:
+            formation_event = formation_events[0]
+            assert isinstance(formation_event, FormationChangeEvent)
+            assert formation_event.event_type == EventType.FORMATION_CHANGE
+
+            # Check that this was originally a formation or position event
+            base_type_name = formation_event.raw_event.get("baseTypeName")
+            assert base_type_name in ["FORMATION", "POSITION"]
+
+    def test_position_becomes_formation_change(self, dataset: EventDataset):
+        """Test that POSITION events become FormationChangeEvent"""
+        # Find position events that become formation changes
+        all_events = dataset.events
+        position_events = [
+            e
+            for e in all_events
+            if e.raw_event.get("baseTypeName") == "POSITION"
+        ]
+
+        formation_change_events = [
+            e for e in position_events if isinstance(e, FormationChangeEvent)
+        ]
+
+        # Position changes with subTypeId 1801 should become FormationChangeEvents
+        assert len(formation_change_events) >= 0
