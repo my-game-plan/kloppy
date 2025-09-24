@@ -116,6 +116,7 @@ class Provider(Enum):
         DATAFACTORY (Provider):
         STATSPERFORM (Provider):
         SPORTVU (Provider):
+        SCISPORTS (Provider):
         OTHER (Provider):
     """
 
@@ -134,6 +135,7 @@ class Provider(Enum):
     HAWKEYE = "hawkeye"
     SPORTVU = "sportvu"
     SIGNALITY = "signality"
+    SCISPORTS = "scisports"
     OTHER = "other"
 
     def __str__(self):
@@ -1070,6 +1072,37 @@ class StatsBombCoordinateSystem(ProviderCoordinateSystem):
         )
 
 
+class SciSportsCoordinateSystem(ProviderCoordinateSystem):
+    """
+    SciSports coordinate system.
+
+    Uses a pitch with coordinates in meters. The origin appears to be at the center
+    of the pitch with x-axis oriented from left to right and y-axis from bottom to top.
+    """
+
+    @property
+    def provider(self) -> Provider:
+        return Provider.SCISPORTS
+
+    @property
+    def origin(self) -> Origin:
+        return Origin.CENTER
+
+    @property
+    def vertical_orientation(self) -> VerticalOrientation:
+        return VerticalOrientation.BOTTOM_TO_TOP
+
+    @property
+    def pitch_dimensions(self) -> PitchDimensions:
+        return MetricPitchDimensions(
+            x_dim=Dimension(-52.5, 52.5),  # Standard pitch is 105m long
+            y_dim=Dimension(-34, 34),  # Standard pitch is 68m wide
+            pitch_length=self._pitch_length or 105.0,
+            pitch_width=self._pitch_width or 68.0,
+            standardized=False,
+        )
+
+
 class PFFCoordinateSystem(ProviderCoordinateSystem):
     """
     PFF coordinate system.
@@ -1382,6 +1415,7 @@ def build_coordinate_system(
             DatasetType.TRACKING: SportecTrackingDataCoordinateSystem,
         },
         Provider.STATSBOMB: StatsBombCoordinateSystem,
+        Provider.SCISPORTS: SciSportsCoordinateSystem,
         Provider.PFF: PFFCoordinateSystem,
         Provider.WYSCOUT: WyscoutCoordinateSystem,
         Provider.SKILLCORNER: SkillCornerCoordinateSystem,
