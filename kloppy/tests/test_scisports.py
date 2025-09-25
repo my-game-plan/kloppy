@@ -216,6 +216,30 @@ class TestSciSportsEvent:
             )
             assert first_period_event.timestamp <= timedelta(seconds=1)
 
+    def test_ball_owning_team_logic(self, dataset):
+        """Test that ball owning team is set correctly based on ball owning events"""
+        # Get a sequence of events including both ball owning and non-ball owning events
+        events = dataset.events[:50]  # First 50 events for quick test
+
+        # Track possession through ball owning events only
+        possession_team = None
+        for event in events:
+            # Ball owning events should update possession
+            if event.event_type in [
+                EventType.PASS,
+                EventType.SHOT,
+                EventType.CARRY,
+                EventType.MISCONTROL,
+            ]:
+                possession_team = event.team
+
+            # All events should have ball_owning_team set to current possession team
+            # or fall back to event team if no possession established yet
+            expected_owning_team = possession_team or event.team
+            assert (
+                event.ball_owning_team == expected_owning_team
+            ), f"Event {event.event_id} ({event.event_type.name}) has wrong ball owning team"
+
 
 class TestSciSportsPassEvent:
     """Tests related to deserializing Pass events"""
@@ -309,37 +333,6 @@ class TestSciSportsPassEvent:
 
         assert len(crosses) == 24
 
-    def test_body_part_checks(self, dataset: EventDataset):
-        """Test body part qualifiers for passes"""
-        pass_events = dataset.find_all("pass")
-
-        right_foot_passes = [
-            e
-            for e in pass_events
-            if BodyPart.RIGHT_FOOT in e.get_qualifier_values(BodyPartQualifier)
-        ]
-        left_foot_passes = [
-            e
-            for e in pass_events
-            if BodyPart.LEFT_FOOT in e.get_qualifier_values(BodyPartQualifier)
-        ]
-        head_passes = [
-            e
-            for e in pass_events
-            if BodyPart.HEAD in e.get_qualifier_values(BodyPartQualifier)
-        ]
-        other_body_part_passes = [
-            e
-            for e in pass_events
-            if BodyPart.OTHER in e.get_qualifier_values(BodyPartQualifier)
-        ]
-
-        # Find passes with body part information
-        assert len(right_foot_passes) == 0
-        assert len(left_foot_passes) == 0
-        assert len(head_passes) == 0
-        assert len(other_body_part_passes) == 758
-
 
 class TestSciSportsShotEvent:
     """Tests related to deserializing Shot events"""
@@ -392,6 +385,43 @@ class TestSciSportsShotEvent:
         assert len(blocked_shots) == 7
         assert len(saved_shots) == 10
         assert len(own_goal_shots) == 0
+
+    def test_shot_body_parts(self, dataset):
+        """Test shot body part types (right foot, left foot, head)"""
+        shot_events = dataset.find_all("shot")
+
+        right_foot_shots = [
+            e
+            for e in shot_events
+            if BodyPart.RIGHT_FOOT in e.get_qualifier_values(BodyPartQualifier)
+        ]
+        left_foot_shots = [
+            e
+            for e in shot_events
+            if BodyPart.LEFT_FOOT in e.get_qualifier_values(BodyPartQualifier)
+        ]
+        head_shots = [
+            e
+            for e in shot_events
+            if BodyPart.HEAD in e.get_qualifier_values(BodyPartQualifier)
+        ]
+        other_body_part_shots = [
+            e
+            for e in shot_events
+            if BodyPart.OTHER in e.get_qualifier_values(BodyPartQualifier)
+        ]
+        hands_shots = [
+            e
+            for e in shot_events
+            if BodyPart.BOTH_HANDS in e.get_qualifier_values(BodyPartQualifier)
+        ]
+
+        # Should have a mix of shot body parts
+        assert len(right_foot_shots) == 22
+        assert len(left_foot_shots) == 12
+        assert len(head_shots) == 4
+        assert len(other_body_part_shots) == 0  # Should be no OTHER shots
+        assert len(hands_shots) == 0  # Should be no HANDS shots
 
 
 class TestSciSportsInterceptionEvent:

@@ -264,7 +264,7 @@ class EVENT:
     def __init__(self, raw_event: Dict):
         self.raw_event = raw_event
 
-    def set_refs(self, teams, periods):
+    def set_refs(self, teams, periods, possession_team=None):
         """Set references to teams and periods"""
         from .helpers import get_team_by_id, get_period_by_id
 
@@ -272,6 +272,7 @@ class EVENT:
         self.period = get_period_by_id(
             self.raw_event.get("partId", 1), periods
         )
+        self.possession_team = possession_team
 
         self.player = None
         if self.team:
@@ -332,7 +333,8 @@ class EVENT:
             "team": self.team,
             "player": self.player,
             "coordinates": coordinates,
-            "ball_owning_team": self.team,  # Assume the team performing the action owns the ball
+            "ball_owning_team": self.possession_team
+            or self.team,  # Use possession team if available, otherwise fall back to event team
             "ball_state": BallState.ALIVE,
             "event_id": str(self.raw_event.get("eventId", "")),
             "raw_event": self.raw_event,
@@ -468,14 +470,7 @@ class PASS(EVENT):
             # This will trigger TypesEnumMeta's error handling
             PASS.SUB_TYPE(sub_type_id)
 
-        # Add body part qualifiers if available
-        body_part_id = self.raw_event.get("bodyPartId")
-        if body_part_id is not None:
-            body_part_enum = BODY_PART(body_part_id)
-            body_part = BODY_PART_MAPPING.get(body_part_enum, BodyPart.OTHER)
-            qualifiers.append(BodyPartQualifier(value=body_part))
-            if body_part == BodyPart.HEAD:
-                qualifiers.append(PassQualifier(value=PassType.HEAD_PASS))
+        # Note: Body part qualifiers removed for passes - only meaningful for shots
 
         # Get end coordinates
         end_x = self.raw_event.get("endPosXM")
@@ -584,11 +579,7 @@ class SHOT(EVENT):
                 )
 
         # Add body part qualifiers
-        body_part_id = self.raw_event.get("bodyPartId")
-        if body_part_id is not None:
-            body_part_enum = BODY_PART(body_part_id)
-            body_part = BODY_PART_MAPPING.get(body_part_enum, BodyPart.OTHER)
-            qualifiers.append(BodyPartQualifier(value=body_part))
+        qualifiers.extend(_get_body_part_qualifiers(self.raw_event))
 
         # Get result coordinates (where the shot ended up)
         end_x = self.raw_event.get("endPosXM")
@@ -722,12 +713,8 @@ class CLEARANCE(EVENT):
     def _create_events(
         self, event_factory: EventFactory, **generic_event_kwargs
     ) -> List[Event]:
-        # Add body part qualifiers if available
+        # Note: Body part qualifiers removed - only meaningful for shots
         qualifiers = []
-        body_part_id = self.raw_event.get("bodyPartId")
-        if body_part_id is not None:
-            body_part = BODY_PART_MAPPING.get(body_part_id, BodyPart.OTHER)
-            qualifiers.append(BodyPartQualifier(value=body_part))
 
         clearance_event = event_factory.build_clearance(
             result=None,
@@ -760,11 +747,7 @@ class KEEPER_SAVE(EVENT):
         # Add goalkeeper qualifiers
         qualifiers = [GoalkeeperQualifier(value=GoalkeeperActionType.SAVE)]
 
-        # Add body part qualifiers if available
-        body_part_id = self.raw_event.get("bodyPartId")
-        if body_part_id is not None:
-            body_part = BODY_PART_MAPPING.get(body_part_id, BodyPart.OTHER)
-            qualifiers.append(BodyPartQualifier(value=body_part))
+        # Note: Body part qualifiers removed - only meaningful for shots
 
         goalkeeper_event = event_factory.build_goalkeeper_event(
             result=None,
@@ -781,11 +764,8 @@ class BLOCK(EVENT):
         self, event_factory: EventFactory, **generic_event_kwargs
     ) -> List[Event]:
         # Blocks are treated as interceptions
+        # Note: Body part qualifiers removed - only meaningful for shots
         qualifiers = []
-        body_part_id = self.raw_event.get("bodyPartId")
-        if body_part_id is not None:
-            body_part = BODY_PART_MAPPING.get(body_part_id, BodyPart.OTHER)
-            qualifiers.append(BodyPartQualifier(value=body_part))
 
         interception_event = event_factory.build_interception(
             result=InterceptionResult.LOST,
@@ -994,15 +974,10 @@ def _get_body_part_qualifiers(raw_event: Dict) -> List[BodyPartQualifier]:
     qualifiers = []
     body_part_id = raw_event.get("bodyPartId")
     if body_part_id is not None:
-        body_part = BODY_PART_MAPPING.get(body_part_id, BodyPart.OTHER)
+        body_part_enum = BODY_PART(body_part_id)
+        body_part = BODY_PART_MAPPING[body_part_enum]
         qualifiers.append(BodyPartQualifier(value=body_part))
     return qualifiers
-
-
-def get_body_part(body_part_id: int) -> BodyPart:
-    """Get kloppy BodyPart from SciSports bodyPartId"""
-    body_part_enum = BODY_PART(body_part_id)
-    return BODY_PART_MAPPING.get(body_part_enum, BodyPart.OTHER)
 
 
 def get_position_type(position_type_id: int) -> PositionType:

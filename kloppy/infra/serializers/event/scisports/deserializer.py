@@ -63,6 +63,18 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
             events = []
             raw_events = raw_data.get("data", [])
 
+            # Define ball owning events similar to StatsPerform
+            BALL_OWNING_EVENTS = (
+                SS.EVENT_TYPE.PASS,
+                SS.EVENT_TYPE.CROSS,
+                SS.EVENT_TYPE.DRIBBLE,
+                SS.EVENT_TYPE.SHOT,
+                SS.EVENT_TYPE.BAD_TOUCH,
+            )
+
+            # Initialize possession team
+            possession_team = None
+
             # Pre-process substitution events to pair SUBBED_OUT with SUBBED_IN
             substitution_pairs = self._pair_substitution_events(
                 raw_events, teams
@@ -77,8 +89,21 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
                     ):
                         continue
 
+                    # Check if this is a ball owning event and update possession
+                    base_type_id = raw_event.get("baseTypeId")
+                    if base_type_id and base_type_id in [
+                        e.value for e in BALL_OWNING_EVENTS
+                    ]:
+                        team_id = str(raw_event.get("teamId"))
+                        if team_id in teams:
+                            possession_team = teams[team_id]
+
                     event_objects = self._create_events(
-                        raw_event, teams, periods, substitution_pairs
+                        raw_event,
+                        teams,
+                        periods,
+                        substitution_pairs,
+                        possession_team,
                     )
                     for event in event_objects:
                         if event and self.should_include_event(event):
@@ -398,6 +423,7 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
         teams: Dict[str, Team],
         periods: list[Period],
         substitution_pairs: Dict[str, Player] = None,
+        possession_team: Team = None,
     ) -> List[Any]:
         """Create Event objects from raw SciSports event data using the new event classes"""
         # Use the event decoder to get the appropriate event class
@@ -408,7 +434,7 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
             return []
 
         # Set references to teams and periods
-        event_obj.set_refs(teams, periods)
+        event_obj.set_refs(teams, periods, possession_team)
 
         # Check if we have valid team and player
         if not event_obj.team:
