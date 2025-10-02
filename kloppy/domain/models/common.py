@@ -726,10 +726,6 @@ class SportecEventDataCoordinateSystem(ProviderCoordinateSystem):
 class SciSportsTrackingDataCoordinateSystem(ProviderCoordinateSystem):
     """
     SciSports tracking coordinate system.
-
-    Uses a pitch with the origin at the bottom left and the y-axis oriented
-    from bottom to top. The coordinates are in meters and range from
-    0..pitch_length (x) and 0..pitch_width (y).
     """
 
     @property
@@ -738,7 +734,7 @@ class SciSportsTrackingDataCoordinateSystem(ProviderCoordinateSystem):
 
     @property
     def origin(self) -> Origin:
-        return Origin.BOTTOM_LEFT
+        return Origin.TOP_LEFT
 
     @property
     def vertical_orientation(self) -> VerticalOrientation:
