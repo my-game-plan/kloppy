@@ -74,19 +74,24 @@ class SyntheticBallReceiptGenerator(SyntheticEventGenerator):
                     idx_plus += 1
 
                 if result is not None:
-                    receive_timestamp = event.receive_timestamp or (
-                        min(
-                            event.timestamp + timedelta(
-                                seconds=dataset.metadata.pitch_dimensions.distance_between(
-                                    event.coordinates,
-                                    event.receiver_coordinates,
-                                    Unit.METERS,
-                                )
-                                / self.pass_velocity_estimate_ms
-                            ),
-                            next_event.timestamp,
+                    if event.receive_timestamp:
+                        receive_timestamp = event.receive_timestamp
+                    else:
+                        estimated_receive_timstamp = event.timestamp + timedelta(
+                            seconds=dataset.metadata.pitch_dimensions.distance_between(
+                                event.coordinates,
+                                event.receiver_coordinates,
+                                Unit.METERS,
+                            )
+                            / self.pass_velocity_estimate_ms
                         )
-                    )
+                        if next_event.period == event.period:
+                            receive_timestamp = min(
+                                estimated_receive_timstamp, next_event.timestamp
+                            )
+                        else:
+                            receive_timestamp = estimated_receive_timstamp
+
                     generic_event_args = {
                         "event_id": f"ball_receipt-{event.event_id}",
                         "coordinates": event.receiver_coordinates,
