@@ -1,3 +1,4 @@
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import timedelta
@@ -323,6 +324,7 @@ class SetPieceType(Enum):
     PENALTY = "PENALTY"
     KICK_OFF = "KICK_OFF"
 
+
 class InterceptionType(Enum):
     """
     InterceptionType
@@ -334,6 +336,7 @@ class InterceptionType(Enum):
 
     SHOT_BLOCK = "SHOT_BLOCK"
     PASS_BLOCK = "PASS_BLOCK"
+
 
 @dataclass
 class SetPieceQualifier(EnumQualifier):
@@ -568,6 +571,7 @@ class InterceptionQualifier(EnumQualifier):
     """
 
     value: InterceptionType
+
 
 @dataclass
 @docstring_inherit_attributes(DataRecord)
@@ -1161,10 +1165,9 @@ class EventDataset(Dataset[Event]):
         for event in self.events:
             if isinstance(event, SubstitutionEvent):
                 if event.replacement_player:
-                    if event.replacement_player.starting_position:
-                        replacement_player_position = (
-                            event.replacement_player.starting_position
-                        )
+                    # Prefer explicit position on the substitution event when available.
+                    if event.position is not None:
+                        replacement_player_position = event.position
                     else:
                         replacement_player_position = (
                             event.player.positions.last(
@@ -1175,7 +1178,11 @@ class EventDataset(Dataset[Event]):
                         event.time,
                         replacement_player_position,
                     )
-                event.player.set_position(event.time, None)
+                    event.player.set_position(event.time, None)
+                else:
+                    warnings.warn(
+                        f"No replacement player for substitution event: {event}"
+                    )
 
             elif isinstance(event, FormationChangeEvent):
                 if event.player_positions:

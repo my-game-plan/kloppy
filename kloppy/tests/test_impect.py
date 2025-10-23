@@ -34,8 +34,8 @@ from kloppy.domain.models.event import (
     GoalkeeperQualifier,
     PassQualifier,
     PassType,
+    UnderPressureQualifier,
 )
-
 from kloppy.infra.serializers.event.impect.helpers import parse_timestamp
 
 
@@ -43,7 +43,21 @@ from kloppy.infra.serializers.event.impect.helpers import parse_timestamp
 def dataset(base_dir) -> EventDataset:
     dataset = impect.load(
         event_data=base_dir / "files" / "impect_events.json",
-        lineup_data=base_dir / "files" / "impect_meta.json",
+        lineup_data=base_dir / "files" / "impect_lineups.json",
+        coordinates="impect",
+    )
+
+    return dataset
+
+
+@pytest.fixture(scope="module")
+def dataset_with_names(base_dir) -> EventDataset:
+    """Dataset loaded with squad and player names from separate files"""
+    dataset = impect.load(
+        event_data=base_dir / "files" / "impect_events.json",
+        lineup_data=base_dir / "files" / "impect_lineups.json",
+        squads_data=base_dir / "files" / "impect_squads.json",
+        players_data=base_dir / "files" / "impect_players.json",
         coordinates="impect",
     )
 
@@ -63,7 +77,7 @@ class TestImpectHelpers:
             2,
         )
         assert parse_timestamp("90:00.000 (+04:16.9200)") == (
-            timedelta(minutes=94, seconds=16, microseconds=920000),
+            timedelta(minutes=49, seconds=16, microseconds=920000),
             2,
         )
         assert parse_timestamp("90:00.0000") == (timedelta(minutes=0), 3)
@@ -127,6 +141,31 @@ class TestImpectMetadata:
         assert player.jersey_no == 5
         assert str(player) == "home_5"
 
+    def test_teams_with_names(self, dataset_with_names):
+        """It should load team and player names from squads and players files"""
+        # Teams should have names loaded
+        assert dataset_with_names.metadata.teams[0].team_id == "1"
+        assert dataset_with_names.metadata.teams[0].name == "Home Team FC"
+        assert dataset_with_names.metadata.teams[1].team_id == "2"
+        assert dataset_with_names.metadata.teams[1].name == "Away Team United"
+
+        # Players should have names loaded
+        player = dataset_with_names.metadata.teams[0].get_player_by_id("1")
+        assert player.player_id == "1"
+        assert player.jersey_no == 5
+        assert player.name == "John Doe"
+        assert str(player) == "John Doe"
+
+        # Check another player
+        player2 = dataset_with_names.metadata.teams[0].get_player_by_id("13")
+        assert player2.name == "Matthew Anderson"
+
+        # Check away team player
+        away_player = dataset_with_names.metadata.teams[1].get_player_by_id(
+            "26"
+        )
+        assert away_player.name == "Ronald Clark"
+
     def test_player_position(self, dataset):
         """It should set the correct player position from the events"""
         # Starting players get their position from the STARTING_XI event
@@ -153,17 +192,17 @@ class TestImpectMetadata:
         assert home_starting_gk.player_id == "13"
         assert home_starting_gk.jersey_no == 30
 
-        home_starting_rcb = dataset.metadata.teams[0].get_player_by_position(
+        home_starting_lwb = dataset.metadata.teams[0].get_player_by_position(
             PositionType.LeftWingBack,
             time=Time(period=period_1, timestamp=timedelta(seconds=0)),
         )
-        assert home_starting_rcb.player_id == "15"
+        assert home_starting_lwb.player_id == "15"
 
-        home_ending_rcb = dataset.metadata.teams[0].get_player_by_position(
+        home_ending_lwb = dataset.metadata.teams[0].get_player_by_position(
             PositionType.LeftWingBack,
             time=Time(period=period_2, timestamp=timedelta(seconds=45 * 60)),
         )
-        assert home_ending_rcb.player_id == "1"
+        assert home_ending_lwb.player_id == "12"
 
         away_starting_gk = dataset.metadata.teams[1].get_player_by_position(
             PositionType.Goalkeeper,
@@ -172,9 +211,47 @@ class TestImpectMetadata:
         assert away_starting_gk.player_id == "26"
 
     def test_periods(self, dataset):
-        """It should create the periods"""
+        """It should create the periods with correct cumulative timestamps"""
         assert len(dataset.metadata.periods) == 2
-        assert dataset.metadata.periods[0].id == 1
+
+        # Period 1 assertions
+        period_1 = dataset.metadata.periods[0]
+        assert period_1.id == 1
+        assert period_1.start_timestamp == timedelta(
+            seconds=0
+        )  # Should start at 0
+        assert period_1.end_timestamp is not None
+        assert period_1.end_timestamp > period_1.start_timestamp
+
+        # Period 2 assertions
+        period_2 = dataset.metadata.periods[1]
+        assert period_2.id == 2
+        assert (
+            period_2.start_timestamp == period_1.end_timestamp
+        )  # Should start where period 1 ended
+        assert period_2.end_timestamp is not None
+        assert period_2.end_timestamp > period_2.start_timestamp
+
+        # Verify cumulative nature: period 2 should start after period 1 ends
+        assert period_2.start_timestamp > period_1.start_timestamp
+        assert period_2.end_timestamp > period_1.end_timestamp
+
+        # Verify reasonable duration (each period should be around 45+ minutes)
+        period_1_duration = period_1.end_timestamp - period_1.start_timestamp
+        period_2_duration = period_2.end_timestamp - period_2.start_timestamp
+
+        assert period_1_duration >= timedelta(
+            minutes=45
+        )  # At least 45 minutes
+        assert period_1_duration <= timedelta(
+            minutes=60
+        )  # At most 60 minutes (allows for extra time)
+        assert period_2_duration >= timedelta(
+            minutes=45
+        )  # At least 45 minutes
+        assert period_2_duration <= timedelta(
+            minutes=100
+        )  # At most 100 minutes (allows for extra time)
 
 
 class TestImpectEvent:
@@ -215,6 +292,37 @@ class TestImpectEvent:
         assert kickoff_p1.timestamp == timedelta(seconds=0)
         kick_off_p2 = kick_offs[1]
         assert kick_off_p2.timestamp == timedelta(seconds=0)
+
+        # Verify that kickoffs are in different periods but both start at 0
+        assert kickoff_p1.period.id == 1
+        assert kick_off_p2.period.id == 2
+        assert (
+            kickoff_p1.timestamp == kick_off_p2.timestamp
+        )  # Both should be 0
+
+        # Verify that events within each period have timestamps relative to that period
+        period_1_events = [e for e in dataset.events if e.period.id == 1]
+        period_2_events = [e for e in dataset.events if e.period.id == 2]
+
+        # First event in each period should be close to 0
+        assert period_1_events[0].timestamp <= timedelta(seconds=1)
+        assert period_2_events[0].timestamp <= timedelta(seconds=1)
+
+        # Events should be in chronological order within each period
+        for i in range(
+            1, min(10, len(period_1_events))
+        ):  # Check first 10 events
+            assert (
+                period_1_events[i].timestamp
+                >= period_1_events[i - 1].timestamp
+            )
+        for i in range(
+            1, min(10, len(period_2_events))
+        ):  # Check first 10 events
+            assert (
+                period_2_events[i].timestamp
+                >= period_2_events[i - 1].timestamp
+            )
 
 
 class TestImpectPassEvent:
@@ -260,14 +368,16 @@ class TestImpectPassEvent:
         shot_assists = [
             e
             for e in dataset.events
-            if PassType.SHOT_ASSIST in e.get_qualifier_values(PassQualifier)
+            if e.event_type == EventType.PASS
+            and PassType.SHOT_ASSIST in e.get_qualifier_values(PassQualifier)
         ]
         assert len(shot_assists) == 8
 
         goal_assists = [
             e
             for e in dataset.events
-            if PassType.ASSIST in e.get_qualifier_values(PassQualifier)
+            if e.event_type == EventType.PASS
+            and PassType.ASSIST in e.get_qualifier_values(PassQualifier)
         ]
         assert len(goal_assists) == 3
 
@@ -418,15 +528,18 @@ class TestImpectSubstitutionEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all substitution events"""
         events = dataset.find_all("substitution")
-        assert len(events) == 6
+        assert len(events) == 7
 
         # Verify that the player and replacement player are set correctly
+        # Note: events are sorted when inserted, so order may differ from creation order
         subs = [
             ("15", "1"),
+            ("2", "11"),  # 60:00 OUT -> 60:15 IN (15 second gap)
             ("4", "6"),
+            # Player 10 at 75:00 had red card - skipped
             ("31", "29"),
-            ("38", "32"),
-            ("37", "28"),
+            ("38", "32"),  # At 79:59: events get reordered after insertion
+            ("37", "28"),  # At 79:59: events get reordered after insertion
             ("7", "12"),
         ]
         for event_idx, (player_id, replacement_player_id) in enumerate(subs):
@@ -435,6 +548,31 @@ class TestImpectSubstitutionEvent:
             assert event.replacement_player == event.team.get_player_by_id(
                 replacement_player_id
             )
+
+    def test_player_off_without_replacement(self, dataset: EventDataset):
+        """It should create PlayerOff event when player goes out without replacement"""
+        # Player 14 goes OUT at 85:00 with no matching IN (added to test data)
+        player_off_events = dataset.find_all("player_off")
+
+        assert (
+            len(player_off_events) >= 1
+        ), "Should have at least one PlayerOff event"
+
+        # Find PlayerOff event for player 14
+        player_14_offs = [
+            e for e in player_off_events if e.player.player_id == "14"
+        ]
+        assert (
+            len(player_14_offs) == 1
+        ), "Player 14 should have exactly one PlayerOff event"
+
+        player_off = player_14_offs[0]
+        assert player_off.player.player_id == "14"
+        assert player_off.team == dataset.metadata.teams[0]  # Home team
+        assert player_off.period.id == 2  # Second period
+        assert player_off.timestamp == timedelta(
+            minutes=40, seconds=0
+        )  # 85:00 - 45:00
 
 
 class TestImpectFoulCommittedEvent:
@@ -452,3 +590,17 @@ class TestImpectRecoveryEvent:
     def test_deserialize_recoveries(self, dataset: EventDataset):
         events = dataset.find_all("recovery")
         assert len(events) == 156
+
+
+class TestImpectUnderPressureQualifier:
+    """Tests related to deserializing pressure data"""
+
+    def test_under_pressure(self, dataset: EventDataset):
+        """It should add the under pressure qualifier when pressure > 0"""
+        # Event 2 has pressure = 75
+        under_pressure = dataset.get_event_by_id("3")
+        assert under_pressure.get_qualifier_value(UnderPressureQualifier)
+
+        # Event 1 has pressure = null
+        no_pressure = dataset.get_event_by_id("1")
+        assert no_pressure.get_qualifier_value(UnderPressureQualifier) is None

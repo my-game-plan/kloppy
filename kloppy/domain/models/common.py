@@ -1083,7 +1083,13 @@ class ImpectCoordinateSystem(ProviderCoordinateSystem):
 
     @property
     def pitch_dimensions(self) -> PitchDimensions:
-        return ImpectPitchDimensions()
+        return MetricPitchDimensions(
+            x_dim=Dimension(-52.5, 52.5),
+            y_dim=Dimension(-34, 34),
+            pitch_length=105,
+            pitch_width=68,
+            standardized=True,
+        )
 
 
 class SmrtStatsCoordinateSystem(ProviderCoordinateSystem):
