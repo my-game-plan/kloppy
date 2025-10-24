@@ -71,6 +71,11 @@ class SignalityDeserializer(TrackingDataDeserializer[SignalityInputs]):
         else:
             ball_coordinates = None
 
+        ball_owning_team = (
+            teams[0] if frame["ball"]["team"] == "home_team"
+            else teams[1] if frame["ball"]["team"] == "away_team"
+            else None
+        )
         players_data = {}
         for ix, side in enumerate(["home", "away"]):
             for raw_player_positional_info in frame[f"{side}_team"]:
@@ -104,7 +109,7 @@ class SignalityDeserializer(TrackingDataDeserializer[SignalityInputs]):
             players_data=players_data,
             period=period,
             ball_state=None,
-            ball_owning_team=None,
+            ball_owning_team=ball_owning_team,
             other_data={},
         )
 
