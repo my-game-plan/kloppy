@@ -269,6 +269,30 @@ class TestStatsPerformEvent:
         deflected_pass = event_dataset.get_event_by_id("2328596237")
         assert deflected_pass.receiver_player is None
 
+    def test_pass_out(self, event_dataset: EventDataset):
+        """It should mark passes that go out with PassResult.OUT."""
+        # Pass 2328590733 is followed by a ball out event, so it should have PassResult.OUT
+        out_pass = event_dataset.get_event_by_id("2328590733")
+        assert out_pass.result == PassResult.OUT
+
+    def test_pass_result_counts(self, event_dataset: EventDataset):
+        """It should have the correct number of passes for each result type."""
+        passes = event_dataset.find_all("pass")
+
+        out_passes = [p for p in passes if p.result == PassResult.OUT]
+        incomplete_passes = [
+            p for p in passes if p.result == PassResult.INCOMPLETE
+        ]
+        complete_passes = [
+            p for p in passes if p.result == PassResult.COMPLETE
+        ]
+        offside_passes = [p for p in passes if p.result == PassResult.OFFSIDE]
+
+        assert len(out_passes) == 21
+        assert len(incomplete_passes) == 188
+        assert len(complete_passes) == 711
+        assert len(offside_passes) == 2
+
 
 class TestStatsPerformTracking:
     """Tests related to deserializing tracking data delivered by StatsPerform."""

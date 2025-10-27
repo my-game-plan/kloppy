@@ -258,6 +258,15 @@ def _parse_pass(
     result = (
         PassResult.COMPLETE if raw_event.outcome else PassResult.INCOMPLETE
     )
+
+    # Check if pass went out by looking at next event
+    if (
+        result == PassResult.INCOMPLETE
+        and next_event is not None
+        and next_event.type_id in BALL_OUT_EVENTS
+    ):
+        result = PassResult.OUT
+
     receiver_coordinates = _get_end_coordinates(raw_event.qualifiers)
     qualifiers = _get_pass_qualifiers(
         raw_event.qualifiers
