@@ -318,6 +318,15 @@ class PASS(EVENT):
     ) -> List[Event]:
         result = pass_result_mapping[self.result]
 
+        # Check if pass went out by looking at next event
+        if (
+            result == PassResult.INCOMPLETE
+            and next_event is not None
+            and next_event.get("category_id") == 6
+            and next_event.get("event_id") == 60
+        ):
+            result = PassResult.OUT
+
         # Determine receiver and coordinates for successful passes
         receiver_player = None
         receiver_coordinates = Point(self.raw_event["x"], self.raw_event["y"])

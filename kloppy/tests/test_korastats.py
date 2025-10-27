@@ -231,6 +231,22 @@ class TestKoraStatsPassEvent:
         ]
         assert len(goal_assists) == 1
 
+    def test_pass_result_counts(self, dataset: EventDataset):
+        """It should have the correct number of passes for each result type."""
+        passes = dataset.find_all("pass")
+
+        out_passes = [p for p in passes if p.result == PassResult.OUT]
+        incomplete_passes = [
+            p for p in passes if p.result == PassResult.INCOMPLETE
+        ]
+        complete_passes = [
+            p for p in passes if p.result == PassResult.COMPLETE
+        ]
+
+        assert len(out_passes) == 15
+        assert len(incomplete_passes) == 181
+        assert len(complete_passes) == 673
+
 
 class TestKoraStatsInterceptionEvent:
     """Tests related to deserialzing pass events"""
