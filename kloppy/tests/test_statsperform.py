@@ -17,9 +17,9 @@ from kloppy.domain import (
     SportVUCoordinateSystem,
     Time,
     TrackingDataset,
-    EventType,
+    InterceptionQualifier,
+    InterceptionType,
 )
-from kloppy.domain.models.event import InterceptionQualifier, InterceptionType
 
 
 @pytest.fixture(scope="module")
@@ -65,9 +65,11 @@ def tracking_dataset(
     tracking_data: Path,
 ) -> TrackingDataset:
     return statsperform.load_tracking(
-        ma1_data=tracking_metadata_xml
-        if request.param == "xml"
-        else tracking_metadata_json,
+        ma1_data=(
+            tracking_metadata_xml
+            if request.param == "xml"
+            else tracking_metadata_json
+        ),
         ma25_data=tracking_data,
         tracking_system="sportvu",
         only_alive=False,
@@ -84,9 +86,11 @@ def event_dataset(
     event_data_json: Path,
 ) -> EventDataset:
     return statsperform.load_event(
-        ma1_data=event_metadata_xml
-        if request.param == "xml"
-        else event_metadata_json,
+        ma1_data=(
+            event_metadata_xml
+            if request.param == "xml"
+            else event_metadata_json
+        ),
         ma3_data=event_data_xml if request.param == "xml" else event_data_json,
         coordinates="opta",
     )
@@ -108,6 +112,7 @@ class TestStatsPerformMetadata:
     def test_teams(self, tracking_dataset: TrackingDataset):
         home_team = tracking_dataset.metadata.teams[0]
         home_player = home_team.players[2]
+
         assert home_player.player_id == "5g5wwp5luxo1rz1kp6chvz0x6"
         assert tracking_dataset.records[0].players_coordinates[
             home_player
@@ -269,7 +274,7 @@ class TestStatsPerformEvent:
     def test_interceptions(self, event_dataset: EventDataset):
         """It should convert all block events into interceptions"""
         events = event_dataset.find_all("interception")
-        assert len(events) == 15 + 11 # interceptions + blocks
+        assert len(events) == 15 + 11  # interceptions + blocks
         shot_blocks = [
             e
             for e in events
@@ -285,6 +290,30 @@ class TestStatsPerformEvent:
 
         assert len(shot_blocks) == 6
         assert len(pass_blocks) == 5
+
+    def test_pass_out(self, event_dataset: EventDataset):
+        """It should mark passes that go out with PassResult.OUT."""
+        # Pass 2328590733 is followed by a ball out event, so it should have PassResult.OUT
+        out_pass = event_dataset.get_event_by_id("2328590733")
+        assert out_pass.result == PassResult.OUT
+
+    def test_pass_result_counts(self, event_dataset: EventDataset):
+        """It should have the correct number of passes for each result type."""
+        passes = event_dataset.find_all("pass")
+
+        out_passes = [p for p in passes if p.result == PassResult.OUT]
+        incomplete_passes = [
+            p for p in passes if p.result == PassResult.INCOMPLETE
+        ]
+        complete_passes = [
+            p for p in passes if p.result == PassResult.COMPLETE
+        ]
+        offside_passes = [p for p in passes if p.result == PassResult.OFFSIDE]
+
+        assert len(out_passes) == 21
+        assert len(incomplete_passes) == 188
+        assert len(complete_passes) == 711
+        assert len(offside_passes) == 2
 
 
 class TestStatsPerformTracking:
@@ -442,5 +471,3 @@ class TestStatsPerformTracking:
                 tracking_system="sportvu",
                 coordinates="kloppy",
             )
-
-

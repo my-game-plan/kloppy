@@ -868,6 +868,16 @@ def create_pass_props(
         if event.raw_event["result"] == "SUCCESS"
         else PassResult.INCOMPLETE
     )
+
+    # Check if pass went out by looking at next event
+    if (
+        result == PassResult.INCOMPLETE
+        and hasattr(event, "next_raw_event")
+        and event.next_raw_event is not None
+        and event.next_raw_event.get("actionType") == "OUT"
+    ):
+        result = PassResult.OUT
+
     receiver_info = pass_dict["receiver"]
     if receiver_info and receiver_info["type"] == "TEAMMATE":
         receiver_player = team.get_player_by_id(receiver_info["playerId"])
@@ -946,8 +956,14 @@ def create_impect_events(
     raw_events: List[Dict],
 ) -> Dict[str, Union[EVENT, Dict]]:
     impect_events = {}
-    for raw_event in raw_events:
-        impect_events[raw_event["id"]] = event_decoder(raw_event)
+    for idx, raw_event in enumerate(raw_events):
+        event = event_decoder(raw_event)
+        # Store reference to next event for checking pass outcomes
+        if idx + 1 < len(raw_events):
+            event.next_raw_event = raw_events[idx + 1]
+        else:
+            event.next_raw_event = None
+        impect_events[raw_event["id"]] = event
 
     return impect_events
 
