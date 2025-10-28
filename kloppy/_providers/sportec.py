@@ -22,22 +22,25 @@ def load_event(
     event_types: Optional[List[str]] = None,
     coordinates: Optional[str] = None,
     event_factory: Optional[EventFactory] = None,
+    exclude_penalty_shootouts: bool = False,
 ) -> EventDataset:
     """
     Load Sportec event data into a [`EventDataset`][kloppy.domain.models.event.EventDataset]
 
-    Parameters:
-        event_data: filename of the XML file containing the events
-        meta_data: filename of the XML file containing the match information
-        event_types:
-        coordinates:
-        event_factory:
+    Args:
+        event_data: XML feed with the raw event data of a game.
+        meta_data: XML feed containing the metadata of the game.
+        event_types: A list of event types to load.
+        coordinates: The coordinate system to use.
+        event_factory: A custom event factory.
+        exclude_penalty_shootouts: If True, excludes events from penalty shootouts (period 5).
 
     """
     serializer = SportecEventDataDeserializer(
         event_types=event_types,
         coordinate_system=coordinates,
         event_factory=event_factory or get_config("event_factory"),
+        exclude_penalty_shootouts=exclude_penalty_shootouts,
     )
     with open_as_file(event_data) as event_data_fp, open_as_file(
         meta_data
@@ -80,9 +83,15 @@ def load(
     event_types: Optional[List[str]] = None,
     coordinates: Optional[str] = None,
     event_factory: Optional[EventFactory] = None,
+    exclude_penalty_shootouts: bool = False,
 ) -> EventDataset:
     return load_event(
-        event_data, meta_data, event_types, coordinates, event_factory
+        event_data,
+        meta_data,
+        event_types,
+        coordinates,
+        event_factory,
+        exclude_penalty_shootouts,
     )
 
 
@@ -117,6 +126,7 @@ def load_open_event_data(
     event_types: Optional[List[str]] = None,
     coordinates: Optional[str] = None,
     event_factory: Optional[EventFactory] = None,
+    exclude_penalty_shootouts: bool = False,
 ) -> EventDataset:
     """
     Load event data for a game from the IDSSE dataset.
@@ -133,6 +143,7 @@ def load_open_event_data(
         event_types:
         coordinates:
         event_factory:
+        exclude_penalty_shootouts: If True, excludes events from penalty shootouts (period 5).
 
     Notes:
         The dataset contains seven full matches of raw event and position data
@@ -165,6 +176,7 @@ def load_open_event_data(
             event_types=event_types,
             coordinates=coordinates,
             event_factory=event_factory,
+            exclude_penalty_shootouts=exclude_penalty_shootouts,
         )
     except HTTPError as e:
         raise HTTPError(
