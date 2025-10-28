@@ -140,6 +140,7 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
             coordinate_system=self.transformer.get_to_coordinate_system(),
         )
         dataset = EventDataset(metadata=metadata, records=events)
+        dataset = self.remove_penalty_shootout_data(dataset)
 
         return dataset
 

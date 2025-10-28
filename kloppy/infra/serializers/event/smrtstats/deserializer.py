@@ -814,7 +814,10 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
             coordinate_system=transformer.get_to_coordinate_system(),
         )
 
-        return EventDataset(
+        dataset = EventDataset(
             metadata=metadata,
             records=events,
         )
+        dataset = self.remove_penalty_shootout_data(dataset)
+
+        return dataset
