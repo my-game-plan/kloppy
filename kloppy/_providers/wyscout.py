@@ -17,16 +17,21 @@ def load(
     coordinates: Optional[str] = None,
     event_factory: Optional[EventFactory] = None,
     data_version: Optional[str] = None,
+    exclude_penalty_shootouts: bool = False,
 ) -> EventDataset:
     """
     Load Wyscout event data into a [`EventDataset`][kloppy.domain.models.event.EventDataset]
 
-    Parameters:
-        event_data: filename of the XML file containing the events and metadata
-        event_types:
-        coordinates:
-        event_factory:
-        data_version:
+    Args:
+        event_data: JSON feed with the raw event data of a game.
+        event_types: A list of event types to load.
+        coordinates: The coordinate system to use.
+        event_factory: A custom event factory.
+        data_version: The version of the Wyscout data. Supported versions are "V2" and "V3".
+        exclude_penalty_shootouts: If True, excludes events from penalty shootouts (period 5).
+
+    Returns:
+        The parsed event data.
     """
     if data_version == "V2":
         deserializer_class = WyscoutDeserializerV2
@@ -39,6 +44,7 @@ def load(
         event_types=event_types,
         coordinate_system=coordinates,
         event_factory=event_factory or get_config("event_factory"),
+        exclude_penalty_shootouts=exclude_penalty_shootouts,
     )
 
     with open_as_file(event_data) as event_data_fp:
@@ -52,12 +58,36 @@ def load_open_data(
     event_types: Optional[List[str]] = None,
     coordinates: Optional[str] = None,
     event_factory: Optional[EventFactory] = None,
+    exclude_penalty_shootouts: bool = False,
 ) -> EventDataset:
+    """
+    Load Wyscout open data.
+
+    This dataset is a public release of event stream data, collected by Wyscout
+    containing all matches of the 2017/18 season of the top-5 European leagues
+    (La Liga, Serie A, Bundesliga, Premier League, Ligue 1), the FIFA World
+    Cup 2018, and UEFA Euro Cup 2016. For a detailed description,
+    see Pappalardo et al. [1].
+
+    Args:
+        match_id: The id of the match to load data for.
+        event_types: A list of event types to load.
+        coordinates: The coordinate system to use.
+        event_factory: A custom event factory.
+        exclude_penalty_shootouts: If True, excludes events from penalty shootouts (period 5).
+
+    Returns:
+        The parsed event data.
+
+    References:
+        [1] Pappalardo, L., Cintia, P., Rossi, A. et al. A public data set of spatio-temporal match events in soccer competitions. Sci Data 6, 236 (2019). https://doi.org/10.1038/s41597-019-0247-7
+    """
     return load(
         event_data=f"https://raw.githubusercontent.com/koenvo/wyscout-soccer-match-event-dataset/main/processed-v2/files/{match_id}.json",
         event_types=event_types,
         coordinates=coordinates,
         event_factory=event_factory,
+        exclude_penalty_shootouts=exclude_penalty_shootouts,
     )
 
 
