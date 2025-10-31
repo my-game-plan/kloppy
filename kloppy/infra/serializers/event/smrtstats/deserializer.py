@@ -733,12 +733,28 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                             **generic_event_kwargs,
                         )
                     elif action_id in GOALKEEPER_IDS:
-                        goalkeeper_kwargs = _parse_goalkeeper_events(
-                            raw_event, action_id
-                        )
-                        event = self.event_factory.build_goalkeeper_event(
-                            **goalkeeper_kwargs, **generic_event_kwargs
-                        )
+                        # EFFECTIVE_SAVE can be performed by field players
+                        # In that case, create a recovery event instead
+                        # Try to get current position from positions container,
+                        # fall back to starting position
+                        current_position = player.starting_position
+
+                        if (
+                            action_id == EFFECTIVE_SAVE
+                            and current_position != PositionType.Goalkeeper
+                        ):
+                            event = self.event_factory.build_recovery(
+                                result=None,
+                                qualifiers=_get_event_qualifiers(raw_event),
+                                **generic_event_kwargs,
+                            )
+                        else:
+                            goalkeeper_kwargs = _parse_goalkeeper_events(
+                                raw_event, action_id
+                            )
+                            event = self.event_factory.build_goalkeeper_event(
+                                **goalkeeper_kwargs, **generic_event_kwargs
+                            )
                     elif action_id == TACKLE:
                         (
                             duel_won_event_kwargs,

@@ -379,8 +379,14 @@ class TestSmrtStatsDuelEvent:
 class TestSmrtStatsGoalkeeperEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all goalkeeper events"""
+        # EFFECTIVE_SAVE events by field players are now recovery events
         events = dataset.find_all("goalkeeper")
-        assert len(events) == 15
+        assert len(events) == 9
+
+        # Field player saves should be recovery events
+        recovery_events = dataset.find_all("recovery")
+        # Original recovery events + field player EFFECTIVE_SAVE events
+        assert len(recovery_events) == 6
 
     def test_save(self, dataset: EventDataset):
         """It should deserialaize goalkeeper saves"""
@@ -389,6 +395,17 @@ class TestSmrtStatsGoalkeeperEvent:
         assert save.get_qualifier_value(GoalkeeperQualifier) == (
             GoalkeeperActionType.SAVE
         )
+
+    def test_all_goalkeeper_events_by_goalkeepers(self, dataset: EventDataset):
+        """All goalkeeper events should be performed by actual goalkeepers"""
+        goalkeeper_events = dataset.find_all("goalkeeper")
+        for event in goalkeeper_events:
+            current_position = event.player.positions.last()
+
+            assert current_position == PositionType.Goalkeeper, (
+                f"Goalkeeper event {event.event_id} was performed by "
+                f"{event.player.name} who is not a goalkeeper (position: {current_position})"
+            )
 
 
 class TestSmrtStatsSubstitutionEvent:
