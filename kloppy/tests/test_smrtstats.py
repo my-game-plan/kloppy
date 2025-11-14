@@ -234,6 +234,26 @@ class TestSmrtStatsPassEvent:
         ]
         assert duel.result == DuelResult.WON
 
+    def test_assists(self, dataset: EventDataset):
+        """It should mark passes as assists when followed by shots/goals"""
+        shot_assists = [
+            e
+            for e in dataset.events
+            if e.event_type == EventType.PASS
+            and PassType.SHOT_ASSIST in e.get_qualifier_values(PassQualifier)
+        ]
+        # There should be at least some shot assists
+        assert len(shot_assists) > 0
+
+        goal_assists = [
+            e
+            for e in dataset.events
+            if e.event_type == EventType.PASS
+            and PassType.ASSIST in e.get_qualifier_values(PassQualifier)
+        ]
+        # There should be at least some goal assists
+        assert len(goal_assists) > 0
+
 
 class TestSmrtStatsShotEvent:
     def test_deserialize_all(self, dataset: EventDataset):

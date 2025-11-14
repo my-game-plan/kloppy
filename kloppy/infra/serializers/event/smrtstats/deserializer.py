@@ -14,7 +14,9 @@ from kloppy.domain import (
     DuelType,
     DuelQualifier,
     DuelResult,
+    Event,
     EventDataset,
+    EventType,
     FoulCommittedEvent,
     GenericEvent,
     GoalkeeperQualifier,
@@ -522,6 +524,29 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
         return Provider.SMRTSTATS
 
     @staticmethod
+    def mark_events_as_assists(events: List[Event]):
+        """Mark pass events as assists when followed by a shot or goal."""
+        for ix, event in enumerate(events):
+            for i in range(1, 3):
+                if event.event_type == EventType.SHOT and ix > i - 1:
+                    potential_assist_event = events[ix - i]
+                    is_pass_event = (
+                        potential_assist_event.event_type == EventType.PASS
+                    )
+                    is_same_team_event = (
+                        event.team == potential_assist_event.team
+                    )
+                    if is_pass_event and is_same_team_event:
+                        potential_assist_event.qualifiers.append(
+                            PassQualifier(value=PassType.SHOT_ASSIST)
+                        )
+                        if event.result == ShotResult.GOAL:
+                            potential_assist_event.qualifiers.append(
+                                PassQualifier(value=PassType.ASSIST)
+                            )
+                        break
+
+    @staticmethod
     def create_team(team_info: Dict, ground: Ground) -> Team:
         team = Team(
             team_id=str(team_info["id"]), name=team_info["name"], ground=ground
@@ -818,6 +843,8 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
 
                     if self.should_include_event(event):
                         events.append(transformer.transform_event(event))
+
+        self.mark_events_as_assists(events)
 
         metadata = Metadata(
             teams=[home_team, away_team],
