@@ -43,7 +43,9 @@ def determine_phase_change(
         return None
 
     set_piece_type = event.get_qualifier_value(SetPieceQualifier)
-    if set_piece_type and set_piece_type not in [SetPieceType.GOAL_KICK, SetPieceType.KICK_OFF]:
+    if set_piece_type in [SetPieceType.GOAL_KICK, SetPieceType.KICK_OFF]:
+        return PhaseOfPlayType.BUILD_UP
+    elif set_piece_type:
         return PhaseOfPlayType.SET_PLAY
 
     # --- TRANSITION LOGIC ---
@@ -91,7 +93,7 @@ def determine_phase_change(
     # --- SET PLAY LOGIC ---
     if state.phase == PhaseOfPlayType.SET_PLAY:
         prev_event = event.prev_record
-        set_piece_type = event.get_qualifier_value(SetPieceQualifier)
+        set_piece_type = prev_event.get_qualifier_value(SetPieceQualifier)
         same_team_possessing_event = prev_event and prev_event.team == event.team and is_possessing_event(prev_event)
         if not set_piece_type and is_possessing_event(event) and same_team_possessing_event:
             if is_own_half(event):
