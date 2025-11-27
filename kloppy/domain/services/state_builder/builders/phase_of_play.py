@@ -1,10 +1,12 @@
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import Optional, List
 
 from kloppy.domain import (
     Event,
     Team,
     EventDataset,
+    Point,
 )
 from kloppy.domain.models.event import PossessionSwitchQualifier, PossessionSwitchType, EventType, SetPieceQualifier, \
     SetPieceType
@@ -31,6 +33,15 @@ def is_own_half(event) -> bool:
     pitch_length = event.dataset.metadata.pitch_dimensions.x_dim.max
     return event.coordinates.x < pitch_length / 2
 
+def close_to_goal(event) -> bool:
+    distance = event.dataset.metadata.pitch_dimensions.distance_between(
+        Point(event.coordinates.x, event.coordinates.y),
+        Point(event.dataset.metadata.pitch_dimensions.x_dim.max,
+              (event.dataset.metadata.pitch_dimensions.y_dim.max
+            + event.dataset.metadata.pitch_dimensions.y_dim.min
+              ) / 2))
+    return (distance < 35)
+
 def determine_phase_change(
     event: Event,
     state: PhaseOfPlay
@@ -50,13 +61,66 @@ def determine_phase_change(
 
     # --- TRANSITION LOGIC ---
     if state.phase == PhaseOfPlayType.TRANSITION:
-        # transition ends when 2 possession actions from same team happen
-        prev_event = event.prev_record
-        possession_switch_type = prev_event.get_qualifier_value(PossessionSwitchQualifier)
-        if possession_switch_type == PossessionSwitchType.GAIN:
-            return None
+        # Check if transition goes over into counter attack
+        prev_poss_gain_timestamp = None
+        _counter_prev = event.prev_record
 
-        same_team_possessing_event = prev_event and prev_event.team == event.team and is_possessing_event(prev_event)
+        while prev_poss_gain_timestamp is None:
+            if not _counter_prev or _counter_prev.period != event.period:
+                break
+
+            possession_switch_type = _counter_prev.get_qualifier_value(PossessionSwitchQualifier)
+            if possession_switch_type == PossessionSwitchType.GAIN and _counter_prev.team == state.team:
+                if is_own_half(_counter_prev):
+                    prev_poss_gain_timestamp = _counter_prev.timestamp
+                break
+            else:
+                _counter_prev = _counter_prev.prev_record
+        if prev_poss_gain_timestamp:
+            # Spatial Condition: The distance between the ball and the goal of the ball losing team is reduced to less than d=35 m
+            close_to_goal_timestamp = None
+            _counter_next = event.next_record
+            while close_to_goal_timestamp is None:
+                if not _counter_next or _counter_next.period != event.period:
+                    break
+                # stop if possession loss from team occurs
+                possession_switch_type = _counter_next.get_qualifier_value(PossessionSwitchQualifier)
+                if possession_switch_type == PossessionSwitchType.LOSE and _counter_next.team == event.team:
+                    break
+                if is_possessing_event(_counter_next) and _counter_next.team != state.team:
+                    break
+                elif is_possessing_event(_counter_next) and _counter_next.team == state.team and close_to_goal(_counter_next):
+                    close_to_goal_timestamp = _counter_next.timestamp
+                    break
+                else:
+                    _counter_next = _counter_next.next_record
+
+            # Temporal Condition: The spatial criterion is met within a time window of t3 = 15s after the turnover (possession gain)
+            if close_to_goal_timestamp and close_to_goal_timestamp - prev_poss_gain_timestamp <= timedelta(seconds=15):
+
+                # Sustain Possession Condition: After the spatial criterion is met there is another offensive event (shot, pass, carry or dribble)
+                # of the ball winning team with a distance of less than d = 35m within the next t4 = 5s.
+                sustain_possession_timestamp = None
+                _counter_next2 = _counter_next.next_record
+                while sustain_possession_timestamp is None:
+                    if is_possessing_event(_counter_next2) and _counter_next.team == _counter_next2.team and close_to_goal(_counter_next2):
+                        sustain_possession_timestamp = _counter_next2.timestamp
+                        break
+                    else:
+                        _counter_next2 = _counter_next2.next_record
+                if sustain_possession_timestamp and sustain_possession_timestamp - close_to_goal_timestamp <= timedelta(seconds=15):
+                    return PhaseOfPlayType.COUNTER_ATTACK
+
+
+        prev_possession_event = event.prev_record
+        while prev_possession_event and not is_possessing_event(prev_possession_event):
+            prev_possession_event = prev_possession_event.prev_record
+        possession_switch_type = prev_possession_event.get_qualifier_value(PossessionSwitchQualifier)
+        if possession_switch_type == PossessionSwitchType.GAIN:
+            return PhaseOfPlayType.TRANSITION
+
+        # transition ends when 2 possession actions from same team happen
+        same_team_possessing_event = prev_possession_event and prev_possession_event.team == event.team and is_possessing_event(prev_possession_event)
         if is_possessing_event(event) and same_team_possessing_event:
             if is_own_half(event):
                 return PhaseOfPlayType.BUILD_UP
@@ -78,7 +142,9 @@ def determine_phase_change(
     if state.phase == PhaseOfPlayType.COUNTER_ATTACK:
         # placeholder: check if counter attack becomes established possession
         # placeholder: check if counter attack ends
-        pass
+        possession_switch_type = event.get_qualifier_value(PossessionSwitchQualifier)
+        if possession_switch_type == PossessionSwitchType.GAIN:
+            return PhaseOfPlayType.TRANSITION
 
     # --- ESTABLISHED POSSESSION LOGIC ---
     if state.phase == PhaseOfPlayType.ESTABLISHED_POSSESSION:
