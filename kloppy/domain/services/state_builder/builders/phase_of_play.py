@@ -9,7 +9,7 @@ from kloppy.domain import (
     Point,
 )
 from kloppy.domain.models.event import PossessionSwitchQualifier, PossessionSwitchType, EventType, SetPieceQualifier, \
-    SetPieceType
+    SetPieceType, ShotEvent
 from .sequence import is_possessing_event, EXCLUDED_OFF_BALL_EVENTS
 from ..builder import StateBuilder
 
@@ -32,6 +32,10 @@ def is_own_half(event) -> bool:
     """Check if the event is in the team's own half."""
     pitch_length = event.dataset.metadata.pitch_dimensions.x_dim.max
     return event.coordinates.x < pitch_length / 2
+def is_own_third(event) -> bool:
+    """Check if the event is in the team's own third."""
+    pitch_length = event.dataset.metadata.pitch_dimensions.x_dim.max
+    return event.coordinates.x < pitch_length / 3
 
 def close_to_goal(event) -> bool:
     distance = event.dataset.metadata.pitch_dimensions.distance_between(
@@ -63,6 +67,7 @@ def determine_phase_change(
     if state.phase == PhaseOfPlayType.TRANSITION:
         # Check if transition goes over into counter attack
         prev_poss_gain_timestamp = None
+        own_third_poss_gain = False
         _counter_prev = event.prev_record
 
         while prev_poss_gain_timestamp is None:
@@ -73,6 +78,8 @@ def determine_phase_change(
             if possession_switch_type == PossessionSwitchType.GAIN and _counter_prev.team == state.team:
                 if is_own_half(_counter_prev):
                     prev_poss_gain_timestamp = _counter_prev.timestamp
+                    if is_own_third(event):
+                        own_third_poss_gain = True
                 break
             else:
                 _counter_prev = _counter_prev.prev_record
@@ -95,8 +102,11 @@ def determine_phase_change(
                 else:
                     _counter_next = _counter_next.next_record
 
+            ALLOWED_SECONDS = 20 if own_third_poss_gain else 15
             # Temporal Condition: The spatial criterion is met within a time window of t3 = 15s after the turnover (possession gain)
-            if close_to_goal_timestamp and close_to_goal_timestamp - prev_poss_gain_timestamp <= timedelta(seconds=15):
+            if close_to_goal_timestamp and close_to_goal_timestamp - prev_poss_gain_timestamp <= timedelta(seconds=ALLOWED_SECONDS):
+                if isinstance(_counter_next, ShotEvent):
+                    return PhaseOfPlayType.COUNTER_ATTACK
 
                 # Sustain Possession Condition: After the spatial criterion is met there is another offensive event (shot, pass, carry or dribble)
                 # of the ball winning team with a distance of less than d = 35m within the next t4 = 5s.
