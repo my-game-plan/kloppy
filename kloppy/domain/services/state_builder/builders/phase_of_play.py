@@ -113,7 +113,7 @@ def detect_counter_attack(event: Event, state: PhaseOfPlay):
     Returns True if conditions satisfied, else False.
     """
     gain_event = find_last_possession_gain(event, state.team)
-    if not gain_event:
+    if not gain_event or not is_own_half(gain_event):
         return False
 
     possession_gain_time = gain_event.timestamp
@@ -252,11 +252,11 @@ class PhaseOfPlayStateBuilder(StateBuilder):
 
     def initial_state(self, dataset: EventDataset) -> PhaseOfPlay:
         """Determine initial phase before the first event."""
-        return PhaseOfPlay(phase=PhaseOfPlayType.BUILD_UP, team=dataset.events[0].team)
+        first_team = dataset.events[0].team
+        return PhaseOfPlay(phase=PhaseOfPlayType.BUILD_UP, team=first_team)
 
     def reduce_before(self, state: PhaseOfPlay, event: Event) -> PhaseOfPlay:
         """Update state before applying the event."""
-        # Example flow (to be implemented):
         new_phase_type = determine_phase_change(event, state)
         if new_phase_type:
              state = replace(state, phase=new_phase_type, team=event.team)
@@ -264,12 +264,8 @@ class PhaseOfPlayStateBuilder(StateBuilder):
 
     def reduce_after(self, state: PhaseOfPlay, event: Event) -> PhaseOfPlay:
         """Update state after applying the event."""
-        # Example flow (to be implemented):
-        # if determine_phase_end(...):
-        #     state = replace(state, phase=None, team=None)
         return state
 
     def post_process(self, events: List[Event]):
         """Optional post-processing once all events have been assigned phases."""
-        # Placeholder for any cleanup or annotation logic
         pass
