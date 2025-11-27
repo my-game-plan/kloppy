@@ -69,7 +69,7 @@ def is_failed_pass(event: Event) -> bool:
 
 
 def is_possessing_event(event: Event) -> bool:
-    if isinstance(event, (PassEvent, CarryEvent, RecoveryEvent, TakeOnEvent)):
+    if isinstance(event, (PassEvent, CarryEvent, RecoveryEvent, TakeOnEvent, ShotEvent)):
         return True
     elif isinstance(event, GoalkeeperEvent) and event.get_qualifier_value(
         GoalkeeperQualifier
