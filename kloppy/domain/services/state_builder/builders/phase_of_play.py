@@ -44,18 +44,24 @@ def is_own_half(event: Event) -> bool:
 
 def is_own_third(event: Event) -> bool:
     """Check if the event is in the team's own third."""
-    pitch_length = event.dataset.metadata.pitch_dimensions.x_dim.max
+    pitch_length = (event.dataset.metadata.pitch_dimensions.x_dim.max-event.dataset.metadata.pitch_dimensions.x_dim.min)
     return event.coordinates.x < pitch_length / 3
 
+def is_attacking_third(event: Event) -> bool:
+    """Check if the event is in the attacking third."""
+    pitch_length = (event.dataset.metadata.pitch_dimensions.x_dim.max-event.dataset.metadata.pitch_dimensions.x_dim.min)
+    return event.coordinates.x > 2 * (pitch_length / 3)
 
-def close_to_goal(event: Event, threshold: float = 35) -> bool:
+
+def close_to_goal(event: Event,) -> bool:
     """Distance to opponent goal under threshold."""
     dims = event.dataset.metadata.pitch_dimensions
+    pitch_length = (dims.x_dim.max - dims.x_dim.min)*dims.pitch_length
     goal_point = Point(
         dims.x_dim.max,
         (dims.y_dim.max + dims.y_dim.min) / 2,
     )
-    return dims.distance_between(Point(event.coordinates.x, event.coordinates.y), goal_point) < threshold
+    return dims.distance_between(Point(event.coordinates.x, event.coordinates.y), goal_point) < (pitch_length / 3)
 
 # ------------------------------------------------------------
 # Possession / Counter Attack Logic Helpers
@@ -67,6 +73,21 @@ def find_last_possession_gain(event: Event, team: Team):
     while cursor and cursor.period == event.period:
         switch = cursor.get_qualifier_value(PossessionSwitchQualifier)
         if switch == PossessionSwitchType.GAIN and cursor.team == team:
+            return cursor
+        cursor = cursor.prev_record
+
+    return None
+
+def find_last_sequence_event_in_final_third(event: Event, team: Team):
+    """Walk backward to find the last counter event in final third for team."""
+    cursor = event.prev_record
+
+    while cursor and cursor.period == event.period:
+        other_sequence = cursor.state["sequence"].sequence_id and cursor.state["sequence"].sequence_id != event.state[
+            "sequence"].sequence_id
+        if other_sequence:
+            break
+        if is_possessing_event(cursor) and cursor.team == team and is_attacking_third(cursor):
             return cursor
         cursor = cursor.prev_record
 
@@ -197,11 +218,16 @@ def determine_phase_change(
 
     # ------------ COUNTER ATTACK LOGIC ----------------- #
     if state.phase == PhaseOfPlayType.COUNTER_ATTACK:
-        # placeholder: check if counter attack becomes established possession
-        # placeholder: check if counter attack ends
+        # check if counter attack becomes build_up again
         possession_switch_type = event.get_qualifier_value(PossessionSwitchQualifier)
         if possession_switch_type == PossessionSwitchType.GAIN:
             return PhaseOfPlayType.TRANSITION
+
+
+        if is_own_half(event):
+            last_final_third_event = find_last_sequence_event_in_final_third(event, state.team)
+            if last_final_third_event and event.team == state.team:
+                return PhaseOfPlayType.BUILD_UP
 
     # ---------------- ESTABLISHED POSSESSION ---------------- #
     if state.phase == PhaseOfPlayType.ESTABLISHED_POSSESSION:
