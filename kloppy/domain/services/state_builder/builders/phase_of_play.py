@@ -288,7 +288,7 @@ class PhaseOfPlayStateBuilder(StateBuilder):
         """Update state before applying the event."""
         new_phase_type = determine_phase_change(event, state)
         if new_phase_type:
-             state = replace(state, phase=new_phase_type, team=event.team)
+            state = replace(state, phase=new_phase_type, team=event.team)
         return state
 
     def reduce_after(self, state: PhaseOfPlay, event: Event) -> PhaseOfPlay:
