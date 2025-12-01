@@ -264,16 +264,6 @@ def determine_phase_change(
 
 
 
-def determine_phase_end(event: Event, state: PhaseOfPlay) -> bool:
-    """Return True if the current phase should end."""
-    pass
-
-
-def classify_phase(event: Event, state: PhaseOfPlay) -> Optional[str]:
-    """Return the phase name for this event (buildup, transition, etc)."""
-    pass
-
-
 # ----------------------------------------------------------------------
 # State Builder Skeleton
 # ----------------------------------------------------------------------
@@ -282,6 +272,11 @@ class PhaseOfPlayStateBuilder(StateBuilder):
 
     def initial_state(self, dataset: EventDataset) -> PhaseOfPlay:
         """Determine initial phase before the first event."""
+        # Check if sequence in the state
+        if not dataset.events[0].state.get("sequence"):
+            raise ValueError(
+                "PhaseOfPlayStateBuilder requires 'sequence' state builder to be applied first."
+            )
         first_team = dataset.events[0].team
         return PhaseOfPlay(phase=PhaseOfPlayType.BUILD_UP, team=first_team)
 
