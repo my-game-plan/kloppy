@@ -80,7 +80,7 @@ def find_last_possession_gain(event: Event, team: Team):
     return None
 
 def find_last_sequence_event_in_final_third(event: Event, team: Team):
-    """Walk backward to find the last counter event in final third for team."""
+    """Walk backward to find the last sequence event in the attacking third for team."""
     cursor = event.prev_record
 
     while cursor and cursor.period == event.period:
