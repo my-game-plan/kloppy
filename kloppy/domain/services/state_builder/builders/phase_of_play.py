@@ -240,6 +240,9 @@ def determine_phase_change(
 
     # -------------------- SET PLAY -------------------------- #
     if state.phase == PhaseOfPlayType.SET_PLAY:
+        possession_switch_type = event.get_qualifier_value(PossessionSwitchQualifier)
+        if possession_switch_type == PossessionSwitchType.GAIN:
+            return PhaseOfPlayType.TRANSITION
         prev_event = event.prev_record
 
         if prev_event:
