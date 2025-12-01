@@ -7,48 +7,35 @@ from kloppy.domain import EventDataset
 from . import builders as _builders  # noqa: F401
 from .registered import create_state_builder
 
+def _apply_single_state_builder(dataset: EventDataset, builder_key: str) -> EventDataset:
+    builder = create_state_builder(builder_key)
+    state = builder.initial_state(dataset)
 
+    events = []
+    for event in dataset.events:
+        state = builder.reduce_before(state, event)
+
+        # Merge NEW STATE slice into existing event.state
+        event_state = event.state
+        event_state[builder_key] = state
+
+        events.append(replace(event, state=event_state))
+
+        state = builder.reduce_after(state, event)
+
+    builder.post_process(events)
+
+    return replace(dataset, records=events)
 def add_state(dataset: EventDataset, *builder_keys: List[str]) -> EventDataset:
     """
-    Add state
-
-    Arguments:
-        - builder_keys: `lineup` `score` `sequence`
-
-    Examples:
-        >>> dataset = dataset.add_state('lineup', 'score')
-
-    Returns:
-        [`EventDataset`][kloppy.domain.models.event.EventDataset]
+    Add state sequentially.
+    First builder enriches the dataset,
+    the second builder sees the results of the first, etc.
     """
     if len(builder_keys) == 1 and isinstance(builder_keys[0], list):
         builder_keys = builder_keys[0]
 
-    builders = {
-        builder_key: create_state_builder(builder_key)
-        for builder_key in builder_keys
-    }
+    for builder_key in builder_keys:     # <-- sequential loop
+        dataset = _apply_single_state_builder(dataset, builder_key)
 
-    state = {
-        builder_key: builder.initial_state(dataset)
-        for builder_key, builder in builders.items()
-    }
-
-    events = []
-    for event in dataset.events:
-        state = {
-            builder_key: builder.reduce_before(state[builder_key], event)
-            for builder_key, builder in builders.items()
-        }
-
-        events.append(replace(event, state=state))
-
-        state = {
-            builder_key: builder.reduce_after(state[builder_key], event)
-            for builder_key, builder in builders.items()
-        }
-
-    for builder_key, builder in builders.items():
-        builder.post_process(events)
-
-    return replace(dataset, records=events)
+    return dataset
