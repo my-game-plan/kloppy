@@ -8,6 +8,16 @@ from . import builders as _builders  # noqa: F401
 from .registered import create_state_builder
 
 def _apply_single_state_builder(dataset: EventDataset, builder_key: str) -> EventDataset:
+    """
+    Apply a single state builder to the dataset.
+
+    Arguments:
+        dataset: The event dataset to enrich with state.
+        builder_key: The key identifying which state builder to use.
+
+    Returns:
+        EventDataset with the specified state builder applied to all events.
+    """
     builder = create_state_builder(builder_key)
     state = builder.initial_state(dataset)
 
