@@ -38,9 +38,20 @@ def _apply_single_state_builder(dataset: EventDataset, builder_key: str) -> Even
     return replace(dataset, records=events)
 def add_state(dataset: EventDataset, *builder_keys: List[str]) -> EventDataset:
     """
-    Add state sequentially.
-    First builder enriches the dataset,
-    the second builder sees the results of the first, etc.
+    Add state to events using one or more state builders.
+
+    State builders are applied sequentially: the first builder enriches the dataset,
+    and subsequent builders see the results of previous builders.
+
+    Arguments:
+        builder_keys: One or more of: 'lineup', 'score', 'sequence', 'formation', 'phase_of_play'
+
+    Examples:
+        >>> dataset = dataset.add_state('lineup', 'score')
+        >>> dataset = dataset.add_state('sequence', 'phase_of_play')
+
+    Returns:
+        [`EventDataset`][kloppy.domain.models.event.EventDataset] with state information attached to events
     """
     if len(builder_keys) == 1 and isinstance(builder_keys[0], list):
         builder_keys = builder_keys[0]
