@@ -49,8 +49,9 @@ def is_own_third(event: Event) -> bool:
 
 def is_attacking_third(event: Event) -> bool:
     """Check if the event is in the attacking third."""
-    pitch_length = (event.dataset.metadata.pitch_dimensions.x_dim.max-event.dataset.metadata.pitch_dimensions.x_dim.min)
-    return event.coordinates.x > 2 * (pitch_length / 3)
+    pitch_min = event.dataset.metadata.pitch_dimensions.x_dim.min
+    pitch_length = event.dataset.metadata.pitch_dimensions.x_dim.max - pitch_min
+    return event.coordinates.x > pitch_min + 2 * (pitch_length / 3)
 
 
 def close_to_goal(event: Event,) -> bool:
