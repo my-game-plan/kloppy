@@ -38,31 +38,35 @@ class PhaseOfPlay:
 # ------------------------------------------------------------
 def is_own_half(event: Event) -> bool:
     """Check if the event is in the team's own half."""
-    pitch_length = event.dataset.metadata.pitch_dimensions.x_dim.max
-    return event.coordinates.x < pitch_length / 2
+    pitch_min = event.dataset.metadata.pitch_dimensions.x_dim.min
+    pitch_max = event.dataset.metadata.pitch_dimensions.x_dim.max
+    pitch_length = pitch_max - pitch_min
+    return event.coordinates.x < pitch_min + pitch_length / 2
 
 
 def is_own_third(event: Event) -> bool:
     """Check if the event is in the team's own third."""
-    pitch_length = (event.dataset.metadata.pitch_dimensions.x_dim.max-event.dataset.metadata.pitch_dimensions.x_dim.min)
-    return event.coordinates.x < pitch_length / 3
+    pitch_min = event.dataset.metadata.pitch_dimensions.x_dim.min
+    pitch_max = event.dataset.metadata.pitch_dimensions.x_dim.max
+    pitch_length = pitch_max - pitch_min
+    return event.coordinates.x < pitch_min + pitch_length / 3
 
 def is_attacking_third(event: Event) -> bool:
     """Check if the event is in the attacking third."""
     pitch_min = event.dataset.metadata.pitch_dimensions.x_dim.min
-    pitch_length = event.dataset.metadata.pitch_dimensions.x_dim.max - pitch_min
+    pitch_max = event.dataset.metadata.pitch_dimensions.x_dim.max
+    pitch_length = pitch_max - pitch_min
     return event.coordinates.x > pitch_min + 2 * (pitch_length / 3)
 
 
 def close_to_goal(event: Event,) -> bool:
     """Distance to opponent goal under threshold."""
     dims = event.dataset.metadata.pitch_dimensions
-    pitch_length = (dims.x_dim.max - dims.x_dim.min)*dims.pitch_length
     goal_point = Point(
         dims.x_dim.max,
         (dims.y_dim.max + dims.y_dim.min) / 2,
     )
-    return dims.distance_between(Point(event.coordinates.x, event.coordinates.y), goal_point) < (pitch_length / 3)
+    return dims.distance_between(Point(event.coordinates.x, event.coordinates.y), goal_point) < 35
 
 # ------------------------------------------------------------
 # Possession / Counter Attack Logic Helpers
