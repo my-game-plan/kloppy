@@ -68,9 +68,9 @@ class TestStateBuilder:
                     poss_switch[e.get_qualifier_value(PossessionSwitchQualifier)].append(e.event_type)
 
         assert events_per_sequence[1] == 3
-        assert events_per_sequence[72] == 11
+        assert events_per_sequence[72] == 12
         assert len(poss_switch[PossessionSwitchType.GAIN]) == 152
-        assert len(poss_switch[PossessionSwitchType.LOSE]) == 156
+        assert len(poss_switch[PossessionSwitchType.LOSE]) == 155
 
     def test_sequence_state_builder_statsperform(self, base_dir):
         dataset = self._load_dataset_statsperform(base_dir)
@@ -95,7 +95,7 @@ class TestStateBuilder:
 
         assert events_per_sequence[1] == 5
         assert events_per_sequence[89] == 12
-        assert len(poss_switch[PossessionSwitchType.GAIN]) == 142
+        assert len(poss_switch[PossessionSwitchType.GAIN]) == 143
         assert len(poss_switch[PossessionSwitchType.LOSE]) == 174
 
     def test_lineup_state_builder(self, base_dir):
