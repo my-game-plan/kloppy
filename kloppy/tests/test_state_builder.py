@@ -6,7 +6,9 @@ from kloppy import statsbomb, statsperform
 from kloppy.domain import Event, EventDataset, EventType, FormationType
 from kloppy.domain.models.event import PossessionSwitchQualifier, PossessionSwitchType
 from kloppy.domain.services.state_builder.builder import StateBuilder
+from kloppy.domain.services.state_builder.builders.phase_of_play import PhaseOfPlay, PhaseOfPlayType
 from kloppy.utils import performance_logging
+
 
 
 class TestStateBuilder:
@@ -172,3 +174,48 @@ class TestStateBuilder:
         assert dataset_with_state.events[1].state["custom"] == 3
         assert dataset_with_state.events[2].state["custom"] == 5
         assert dataset_with_state.events[3].state["custom"] == 7
+
+    def test_phase_of_play_state_builder_statsbomb(self, base_dir):
+        dataset = self._load_dataset_statsbomb(base_dir)
+
+        with performance_logging("add_state"):
+            dataset_with_state = dataset.add_state("sequence","phase_of_play")
+        events = dataset_with_state.events
+        for event in events:
+            assert event.state["phase_of_play"] is not None
+
+        build_up_event = dataset_with_state.get_event_by_id("ce508a95-38d3-4248-a50e-dc8d7e23230c")
+        assert build_up_event.state["phase_of_play"] == PhaseOfPlay(
+            phase=PhaseOfPlayType.BUILD_UP,
+            team=build_up_event.team
+        )
+
+        transition_event = dataset_with_state.get_event_by_id("f1cc47d6-4b19-45a6-beb9-33d67fc83f4b")
+        assert transition_event.state["phase_of_play"] == PhaseOfPlay(
+            phase=PhaseOfPlayType.TRANSITION,
+            team=transition_event.team
+        )
+
+        established_possession_event = dataset_with_state.get_event_by_id("d2d49535-0037-4b01-9d4c-7715dbb58665")
+        assert established_possession_event.state["phase_of_play"] == PhaseOfPlay(
+            phase=PhaseOfPlayType.ESTABLISHED_POSSESSION,
+            team=established_possession_event.team
+        )
+
+        counter_attack_event = dataset_with_state.get_event_by_id("72356e49-b224-450d-9a25-fb09e3627ab2")
+        assert counter_attack_event.state["phase_of_play"] == PhaseOfPlay(
+            phase=PhaseOfPlayType.COUNTER_ATTACK,
+            team=counter_attack_event.team
+        )
+
+        set_play_event = dataset_with_state.get_event_by_id("66974d44-2bbe-4b87-abd1-601123630c79")
+        assert set_play_event.state["phase_of_play"] == PhaseOfPlay(
+            phase=PhaseOfPlayType.SET_PLAY,
+            team=set_play_event.team
+        )
+
+
+
+
+
+
