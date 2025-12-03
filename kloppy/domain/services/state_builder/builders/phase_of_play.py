@@ -36,6 +36,16 @@ class PhaseOfPlayType(Enum):
 
 @dataclass
 class PhaseOfPlay:
+    """
+    Represents the current phase of play for a team.
+
+    Attributes
+    ----------
+    phase : PhaseOfPlayType
+        Type of the current phase (e.g., TRANSITION, BUILD_UP, COUNTER_ATTACK).
+    team : Optional[Team]
+        Team currently in possession during this phase.
+    """
     phase: PhaseOfPlayType
     team: Optional[Team]
 
@@ -43,29 +53,28 @@ class PhaseOfPlay:
 # Spatial Utility Functions
 # ------------------------------------------------------------
 def is_defending_half(event: Event) -> bool:
-    """Check if the event is in the defending half."""
+    """Return True if the event occurs in the defending half of the pitch."""
     pitch_min = event.dataset.metadata.pitch_dimensions.x_dim.min
     pitch_max = event.dataset.metadata.pitch_dimensions.x_dim.max
     pitch_length = pitch_max - pitch_min
     return event.coordinates.x < pitch_min + pitch_length / 2
 
-
 def is_first_third(event: Event) -> bool:
-    """Check if the event is in the first third."""
+    """Return True if the event occurs in the team's own first third of the pitch."""
     pitch_min = event.dataset.metadata.pitch_dimensions.x_dim.min
     pitch_max = event.dataset.metadata.pitch_dimensions.x_dim.max
     pitch_length = pitch_max - pitch_min
     return event.coordinates.x < pitch_min + pitch_length / 3
 
 def is_final_third(event: Event) -> bool:
-    """Check if the event is in the final third."""
+    """Return True if the event occurs in the attacking final third of the pitch."""
     pitch_min = event.dataset.metadata.pitch_dimensions.x_dim.min
     pitch_max = event.dataset.metadata.pitch_dimensions.x_dim.max
     pitch_length = pitch_max - pitch_min
     return event.coordinates.x > pitch_min + 2 * (pitch_length / 3)
 
 def distance_to_goal(event: Event) -> float:
-    """Distance to opponent goal."""
+    """Compute the distance from the event location to the opponent's goal."""
     dims = event.dataset.metadata.pitch_dimensions
     goal_point = Point(
         dims.x_dim.max,
@@ -73,32 +82,32 @@ def distance_to_goal(event: Event) -> float:
     )
     return dims.distance_between(Point(event.coordinates.x, event.coordinates.y), goal_point)
 
-def close_to_goal(event: Event,) -> bool:
-    """Distance to opponent goal under threshold."""
+def close_to_goal(event: Event) -> bool:
+    """Return True if the event is within a close-to-goal threshold."""
     return distance_to_goal(event) <= CLOSE_TO_GOAL_THRESHOLD_METERS
 
 # ------------------------------------------------------------
 # Possession / Counter Attack Logic Helpers
 # ------------------------------------------------------------
 def find_last_possession_gain(event: Event, team: Team):
-    """Walk backward to find the most recent possession gain for team."""
+    """Traverse backwards to find the last possession gain event for a team."""
     cursor = event.prev_record
-
     while cursor and cursor.period == event.period:
         switch = cursor.get_qualifier_value(PossessionSwitchQualifier)
         if switch == PossessionSwitchType.GAIN and cursor.team == team:
             return cursor
         cursor = cursor.prev_record
-
     return None
 
-def check_ball_progression(
-    event: Event,
-    team: Team
-) -> bool:
+def check_ball_progression(event: Event, team: Team) -> bool:
     """
-    Returns True if ball has advanced AT LEAST `meters` in the last `seconds`.
-    Progression = change in x-coordinate (toward opponent's goal).
+    Check if the ball has advanced at least BALL_PROGRESSION_THRESHOLD_METERS
+    in the last BALL_PROGRESSION_TIME_SECONDS seconds, relative to the opponent's goal.
+
+    Returns
+    -------
+    bool
+        True if progression meets or exceeds the threshold, False otherwise.
     """
     current_time = event.timestamp
     start_time = current_time - timedelta(seconds=BALL_PROGRESSION_TIME_SECONDS)
@@ -107,86 +116,78 @@ def check_ball_progression(
 
     cursor = event.prev_record
 
-    # Find earliest event inside the time window
     while cursor and cursor.period == event.period:
         if cursor.timestamp < start_time:
             break
-        # Consider only events in transition or counter attack from same team
         if cursor.team == team and cursor.state["phase_of_play"].phase in [PhaseOfPlayType.COUNTER_ATTACK, PhaseOfPlayType.TRANSITION]:
             furthest_distance = max(distance_to_goal(cursor), furthest_distance)
-
         cursor = cursor.prev_record
 
-    if not furthest_distance or not cursor or cursor.state["phase_of_play"].phase != PhaseOfPlayType.COUNTER_ATTACK :
-        return True # not enough info → assume progression OK to avoid false positives
+    if not furthest_distance or not cursor or cursor.state["phase_of_play"].phase != PhaseOfPlayType.COUNTER_ATTACK:
+        return True  # assume progression OK if insufficient info
 
     return furthest_distance - current_distance >= BALL_PROGRESSION_THRESHOLD_METERS
 
 def find_last_event_before_transition(event):
-    """Walk backward to find the last event before transition started."""
+    """Traverse backwards to find the last event before the current transition phase."""
     cursor = event.prev_record
-
     while cursor and cursor.period == event.period:
         if cursor.state["phase_of_play"].phase != PhaseOfPlayType.TRANSITION:
             return cursor
         cursor = cursor.prev_record
-
     return None
 
 def find_last_sequence_possessing_event_in_final_third(event: Event, team: Team):
-    """Walk backward to find the last possessing event in the same sequence in the final third for team."""
+    """
+    Traverse backwards to find the last possessing event in the same sequence
+    in the final third for the given team.
+    """
     cursor = event.prev_record
-
     while cursor and cursor.period == event.period:
-        other_sequence = cursor.state["sequence"].sequence_id and cursor.state["sequence"].sequence_id != event.state[
-            "sequence"].sequence_id
+        other_sequence = cursor.state["sequence"].sequence_id and cursor.state["sequence"].sequence_id != event.state["sequence"].sequence_id
         if other_sequence:
             break
         if is_possessing_event(cursor) and cursor.team == team and is_final_third(cursor):
             return cursor
         cursor = cursor.prev_record
-
     return None
 
 def find_first_close_to_goal_event(event: Event, team: Team):
-    """Walk forward until: close-to-goal condition OR turnover OR opponent gains ball."""
+    """
+    Traverse forward to find the first event that is close to goal, until
+    a turnover or opponent possession occurs.
+    """
     cursor = event.next_record
-
     while cursor and cursor.period == event.period:
         switch = cursor.get_qualifier_value(PossessionSwitchQualifier)
-
         if switch == PossessionSwitchType.LOSE and cursor.team == team:
-            return None  # turnover ends counter attempt
-
+            return None
         if is_possessing_event(cursor):
             if cursor.team != team:
-                return None  # opponent gains ball
+                return None
             if close_to_goal(cursor):
-                return cursor  # good event found
-
+                return cursor
         cursor = cursor.next_record
-
     return None
 
 def find_sustaining_event(event: Event, team: Team):
-    """Look forward for another strong offensive action within close range."""
+    """Look forward for another strong offensive event in close proximity."""
     cursor = event.next_record
-
     while cursor and cursor.period == event.period:
-        if (
-            is_possessing_event(cursor)
-            and cursor.team == team
-            and close_to_goal(cursor)
-        ):
+        if is_possessing_event(cursor) and cursor.team == team and close_to_goal(cursor):
             return cursor
         cursor = cursor.next_record
-
     return None
 
 def detect_counter_attack(event: Event, state: PhaseOfPlay):
     """
-    Full counter-attack detection logic — cleanly isolated.
-    Returns True if conditions satisfied, else False.
+    Detect a counter-attack based on possession gain, pitch location,
+    and speed of progression.
+
+    Returns
+    -------
+    bool
+        True if a counter-attack is detected, False otherwise.
     """
     gain_event = find_last_possession_gain(event, state.team)
     if not gain_event or not is_defending_half(gain_event):
@@ -207,7 +208,6 @@ def detect_counter_attack(event: Event, state: PhaseOfPlay):
     if close_goal_event.timestamp - possession_gain_time > timedelta(seconds=allowed_seconds):
         return False
 
-    # If shot happens immediately inside window → definite counter attack
     if isinstance(close_goal_event, ShotEvent):
         return True
 
@@ -220,108 +220,67 @@ def detect_counter_attack(event: Event, state: PhaseOfPlay):
 
     return False
 
-def determine_phase_change(
-    event: Event,
-    state: PhaseOfPlay
-) -> Optional[PhaseOfPlayType]:
+def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOfPlayType]:
     """
-    Determine whether a given event triggers a phase-of-play transition.
+    Determine if an event triggers a phase-of-play transition.
 
-    This function evaluates the current phase (transition, build-up,
-    counter-attack, established possession, or set play) and checks whether
-    the new event satisfies the criteria to move into a different phase.
-    Phase-change detection is driven by:
-
-    - possession gains/losses (via PossessionSwitchQualifier)
-    - spatial context (own half, final third, ball progression)
-    - set-piece events
-    - counter-attack recognition (fast progression after a possession gain)
-    - stability of possession (e.g., two consecutive controlling actions)
-    - the last known phase and team in possession
+    Considers:
+    - Possession gains/losses
+    - Spatial context (own half, final third)
+    - Set-piece events
+    - Counter-attack detection
+    - Stability of possession
+    - Previous phase and team in possession
 
     Parameters
     ----------
     event : Event
-        The current event being processed.
+        The event being evaluated.
     state : PhaseOfPlay
-        The current phase state before processing this event.
+        The current phase state.
 
     Returns
     -------
     Optional[PhaseOfPlayType]
-        The new phase if a transition is detected, otherwise None
-        (meaning the current phase continues unchanged).
-
-    Notes
-    -----
-    The detailed logic for each phase is documented inline in the respective
-    section blocks below (TRANSITION, BUILD-UP, COUNTER-ATTACK,
-    ESTABLISHED POSSESSION, SET PLAY).
+        The new phase if a transition occurs, else None.
     """
-    # ignore excluded off-ball events
     if isinstance(event, EXCLUDED_OFF_BALL_EVENTS):
         return None
 
-    # set-piece events always trigger phase changes
     set_piece_type = event.get_qualifier_value(SetPieceQualifier)
     if set_piece_type in (SetPieceType.GOAL_KICK, SetPieceType.KICK_OFF):
         return PhaseOfPlayType.BUILD_UP
     elif set_piece_type:
         return PhaseOfPlayType.SET_PLAY
 
-    # ---------------- TRANSITION LOGIC ---------------- #
+    # TRANSITION
     if state.phase == PhaseOfPlayType.TRANSITION:
-        # --- Transition -> Counter Attack --- #
         if detect_counter_attack(event, state):
             return PhaseOfPlayType.COUNTER_ATTACK
-
-        # Re-check if transition should restart
         last_possession_event = event.prev_record
         while last_possession_event and not is_possessing_event(last_possession_event):
             last_possession_event = last_possession_event.prev_record
-
         if last_possession_event:
             switch = last_possession_event.get_qualifier_value(PossessionSwitchQualifier)
             if switch == PossessionSwitchType.GAIN:
                 return PhaseOfPlayType.TRANSITION
-
-        # Transition -> Build-Up / Established Possession
-        # Transition ends when two consecutive team possession actions occur
-        same_team_prev = (
-            last_possession_event
-            and last_possession_event.team == event.team
-            and is_possessing_event(last_possession_event)
-        )
+        same_team_prev = last_possession_event and last_possession_event.team == event.team and is_possessing_event(last_possession_event)
         if same_team_prev and is_possessing_event(event):
-            return (
-                PhaseOfPlayType.BUILD_UP
-                if is_defending_half(event)
-                else PhaseOfPlayType.ESTABLISHED_POSSESSION
-            )
+            return PhaseOfPlayType.BUILD_UP if is_defending_half(event) else PhaseOfPlayType.ESTABLISHED_POSSESSION
 
-
-    # ---------------- BUILD-UP LOGIC ------------------- #
+    # BUILD-UP
     if state.phase == PhaseOfPlayType.BUILD_UP:
-        # Build-up -> Transition
         possession_switch_type = event.get_qualifier_value(PossessionSwitchQualifier)
         if possession_switch_type == PossessionSwitchType.GAIN:
             return PhaseOfPlayType.TRANSITION
-
-        # Build-up -> Established Possession
-        # build up ends when ball goes over the halfway line
         if not is_defending_half(event) and event.team == state.team:
             return PhaseOfPlayType.ESTABLISHED_POSSESSION
 
-
-    # ------------ COUNTER ATTACK LOGIC ----------------- #
+    # COUNTER ATTACK
     if state.phase == PhaseOfPlayType.COUNTER_ATTACK:
-        # Counter Attack -> Transition
-        # check if counter attack becomes build_up again
         possession_switch_type = event.get_qualifier_value(PossessionSwitchQualifier)
         if possession_switch_type == PossessionSwitchType.GAIN:
             return PhaseOfPlayType.TRANSITION
-
-        # Transition -> Build Up or Established Possession
         last_final_third_event = find_last_sequence_possessing_event_in_final_third(event, state.team)
         if last_final_third_event and event.team == state.team:
             if is_defending_half(event):
@@ -329,58 +288,39 @@ def determine_phase_change(
             if is_possessing_event(event) and not is_final_third(event) and not check_ball_progression(event, state.team):
                 return PhaseOfPlayType.ESTABLISHED_POSSESSION
 
-    # ---------------- ESTABLISHED POSSESSION ---------------- #
+    # ESTABLISHED POSSESSION
     if state.phase == PhaseOfPlayType.ESTABLISHED_POSSESSION:
-        # Established Possession -> Transition
         possession_switch_type = event.get_qualifier_value(PossessionSwitchQualifier)
         if possession_switch_type == PossessionSwitchType.GAIN:
             return PhaseOfPlayType.TRANSITION
-
-        # Established Possession -> Build Up
         if event.team == state.team and is_defending_half(event):
             return PhaseOfPlayType.BUILD_UP
 
-    # -------------------- SET PLAY -------------------------- #
+    # SET PLAY
     if state.phase == PhaseOfPlayType.SET_PLAY:
-        # Set Play -> Transition
         possession_switch_type = event.get_qualifier_value(PossessionSwitchQualifier)
         if possession_switch_type == PossessionSwitchType.GAIN:
             return PhaseOfPlayType.TRANSITION
         prev_event = event.prev_record
         while prev_event and isinstance(prev_event, EXCLUDED_OFF_BALL_EVENTS):
             prev_event = prev_event.prev_record
-
-
-
         if prev_event:
-            # Set Play -> Build Up / Established Possession
             prev_event_set_piece_type = prev_event.get_qualifier_value(SetPieceQualifier)
-            same_team_prev = (
-                prev_event.team == event.team
-                and is_possessing_event(prev_event)
-            )
-            # exit set-play when two consecutive possessing actions from same team occur after set piece
+            same_team_prev = prev_event.team == event.team and is_possessing_event(prev_event)
             if not prev_event_set_piece_type and same_team_prev and is_possessing_event(event):
-                return (
-                    PhaseOfPlayType.BUILD_UP
-                    if is_defending_half(event)
-                    else PhaseOfPlayType.ESTABLISHED_POSSESSION
-                )
+                return PhaseOfPlayType.BUILD_UP if is_defending_half(event) else PhaseOfPlayType.ESTABLISHED_POSSESSION
 
-    # Default: stay in the same phase
     return None
-
-
 
 # ----------------------------------------------------------------------
 # State Builder Skeleton
 # ----------------------------------------------------------------------
 
 class PhaseOfPlayStateBuilder(StateBuilder):
+    """State builder that tracks the current phase of play across events."""
 
     def initial_state(self, dataset: EventDataset) -> PhaseOfPlay:
-        """Determine initial phase before the first event."""
-        # Check if sequence in the state
+        """Return the initial phase state before processing any events."""
         if not dataset.events[0].state.get("sequence"):
             raise ValueError(
                 "PhaseOfPlayStateBuilder requires 'sequence' state builder to be applied first."
@@ -389,16 +329,16 @@ class PhaseOfPlayStateBuilder(StateBuilder):
         return PhaseOfPlay(phase=PhaseOfPlayType.BUILD_UP, team=first_team)
 
     def reduce_before(self, state: PhaseOfPlay, event: Event) -> PhaseOfPlay:
-        """Update state before applying the event."""
+        """Update the state based on the event before applying it."""
         new_phase_type = determine_phase_change(event, state)
         if new_phase_type:
             state = replace(state, phase=new_phase_type, team=event.team)
         return state
 
     def reduce_after(self, state: PhaseOfPlay, event: Event) -> PhaseOfPlay:
-        """Update state after applying the event."""
+        """Return the state after processing the event."""
         return state
 
     def post_process(self, events: List[Event]):
-        """Optional post-processing once all events have been assigned phases."""
+        """Optional post-processing after all events have been assigned phases."""
         pass
