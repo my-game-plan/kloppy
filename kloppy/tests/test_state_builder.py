@@ -214,8 +214,3 @@ class TestStateBuilder:
             team=set_play_event.team
         )
 
-
-
-
-
-
