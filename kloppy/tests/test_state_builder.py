@@ -10,7 +10,6 @@ from kloppy.domain.services.state_builder.builders.phase_of_play import PhaseOfP
 from kloppy.utils import performance_logging
 
 
-
 class TestStateBuilder:
     """"""
 
