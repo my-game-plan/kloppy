@@ -58,15 +58,52 @@ def is_attacking_third(event: Event) -> bool:
     pitch_length = pitch_max - pitch_min
     return event.coordinates.x > pitch_min + 2 * (pitch_length / 3)
 
-
-def close_to_goal(event: Event,) -> bool:
-    """Distance to opponent goal under threshold."""
+def distance_to_goal(event: Event) -> float:
+    """Distance to opponent goal."""
     dims = event.dataset.metadata.pitch_dimensions
     goal_point = Point(
         dims.x_dim.max,
         (dims.y_dim.max + dims.y_dim.min) / 2,
     )
-    return dims.distance_between(Point(event.coordinates.x, event.coordinates.y), goal_point) < 35
+    return dims.distance_between(Point(event.coordinates.x, event.coordinates.y), goal_point)
+
+def close_to_goal(event: Event,) -> bool:
+    """Distance to opponent goal under threshold."""
+    return distance_to_goal(event) <= 35.0  # meters
+def check_ball_progression(
+    event: Event,
+    team: Team
+) -> bool:
+    """
+    Returns True if ball has advanced AT LEAST `meters` in the last `seconds`.
+    Progression = change in x-coordinate (toward opponent's goal).
+    """
+    current_time = event.timestamp
+    start_time = current_time - timedelta(seconds=10)
+    end_time = current_time - timedelta(seconds=5)
+    current_distance = distance_to_goal(event)
+    furthest_distance = 0
+
+    cursor = event.prev_record
+
+    # Find earliest event inside the time window
+    while cursor and cursor.period == event.period:
+        #if cursor.timestamp > end_time:
+        #    cursor = cursor.prev_record
+        #    continue
+        if cursor.timestamp < start_time:
+            break
+        # Consider only events from same sequence + same team possession
+        if cursor.team == team and cursor.state["phase_of_play"].phase in [PhaseOfPlayType.COUNTER_ATTACK, PhaseOfPlayType.TRANSITION]:
+            furthest_distance = max(distance_to_goal(cursor), furthest_distance)
+
+        cursor = cursor.prev_record
+
+    if not furthest_distance or not cursor or cursor.state["phase_of_play"].phase != PhaseOfPlayType.COUNTER_ATTACK :
+        return True # not enough info → assume progression OK to avoid false positives
+
+    return furthest_distance - current_distance >= 10.0  # meters progressed
+
 
 # ------------------------------------------------------------
 # Possession / Counter Attack Logic Helpers
@@ -228,11 +265,12 @@ def determine_phase_change(
         if possession_switch_type == PossessionSwitchType.GAIN:
             return PhaseOfPlayType.TRANSITION
 
-
-        if is_own_half(event):
-            last_final_third_event = find_last_sequence_event_in_final_third(event, state.team)
-            if last_final_third_event and event.team == state.team:
+        last_final_third_event = find_last_sequence_event_in_final_third(event, state.team)
+        if last_final_third_event and event.team == state.team:
+            if is_own_half(event):
                 return PhaseOfPlayType.BUILD_UP
+            if is_possessing_event(event) and not is_attacking_third(event) and not check_ball_progression(event, state.team):
+                return PhaseOfPlayType.ESTABLISHED_POSSESSION
 
     # ---------------- ESTABLISHED POSSESSION ---------------- #
     if state.phase == PhaseOfPlayType.ESTABLISHED_POSSESSION:
