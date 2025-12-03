@@ -20,6 +20,12 @@ from ..builder import StateBuilder
 
 from enum import Enum
 
+CLOSE_TO_GOAL_THRESHOLD_METERS = 35.0
+BALL_PROGRESSION_TIME_SECONDS = 10
+BALL_PROGRESSION_THRESHOLD_METERS = 10.0
+COUNTER_ATTACK_MAX_TIME_CLOSE_TO_GOAL_SECONDS = 15
+COUNTER_ATTACK_EXTRA_TIME_CLOSE_TO_GOAL_SECONDS = 5
+COUNTER_ATTACK_SUSTAIN_POSSESSION_MAX_TIME_SECONDS = 15
 
 class PhaseOfPlayType(Enum):
     TRANSITION = "transition"
@@ -69,7 +75,7 @@ def distance_to_goal(event: Event) -> float:
 
 def close_to_goal(event: Event,) -> bool:
     """Distance to opponent goal under threshold."""
-    return distance_to_goal(event) <= 35.0  # meters
+    return distance_to_goal(event) <= CLOSE_TO_GOAL_THRESHOLD_METERS
 
 # ------------------------------------------------------------
 # Possession / Counter Attack Logic Helpers
@@ -95,7 +101,7 @@ def check_ball_progression(
     Progression = change in x-coordinate (toward opponent's goal).
     """
     current_time = event.timestamp
-    start_time = current_time - timedelta(seconds=10)
+    start_time = current_time - timedelta(seconds=BALL_PROGRESSION_TIME_SECONDS)
     current_distance = distance_to_goal(event)
     furthest_distance = 0
 
@@ -114,7 +120,7 @@ def check_ball_progression(
     if not furthest_distance or not cursor or cursor.state["phase_of_play"].phase != PhaseOfPlayType.COUNTER_ATTACK :
         return True # not enough info → assume progression OK to avoid false positives
 
-    return furthest_distance - current_distance >= 10.0  # meters progressed
+    return furthest_distance - current_distance >= BALL_PROGRESSION_THRESHOLD_METERS
 
 def find_last_event_before_transition(event):
     """Walk backward to find the last event before transition started."""
@@ -197,7 +203,7 @@ def detect_counter_attack(event: Event, state: PhaseOfPlay):
     if not close_goal_event:
         return False
 
-    allowed_seconds = 20 if gained_in_own_third else 15
+    allowed_seconds = COUNTER_ATTACK_MAX_TIME_CLOSE_TO_GOAL_SECONDS + COUNTER_ATTACK_EXTRA_TIME_CLOSE_TO_GOAL_SECONDS if gained_in_own_third else COUNTER_ATTACK_MAX_TIME_CLOSE_TO_GOAL_SECONDS
     if close_goal_event.timestamp - possession_gain_time > timedelta(seconds=allowed_seconds):
         return False
 
@@ -209,7 +215,7 @@ def detect_counter_attack(event: Event, state: PhaseOfPlay):
     if not sustaining_event:
         return False
 
-    if sustaining_event.timestamp - close_goal_event.timestamp <= timedelta(seconds=15):
+    if sustaining_event.timestamp - close_goal_event.timestamp <= timedelta(seconds=COUNTER_ATTACK_SUSTAIN_POSSESSION_MAX_TIME_SECONDS):
         return True
 
     return False
