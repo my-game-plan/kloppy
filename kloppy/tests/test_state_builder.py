@@ -178,7 +178,7 @@ class TestStateBuilder:
         dataset = self._load_dataset_statsbomb(base_dir)
 
         with performance_logging("add_state"):
-            dataset_with_state = dataset.add_state("sequence","phase_of_play")
+            dataset_with_state = dataset.add_state("sequence", "phase_of_play")
         events = dataset_with_state.events
         for event in events:
             assert event.state["phase_of_play"] is not None
