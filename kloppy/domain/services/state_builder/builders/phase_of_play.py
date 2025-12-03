@@ -120,6 +120,17 @@ def find_last_possession_gain(event: Event, team: Team):
 
     return None
 
+def find_last_event_before_transition(event):
+    """Walk backward to find the last event before transition started."""
+    cursor = event.prev_record
+
+    while cursor and cursor.period == event.period:
+        if cursor.state["phase_of_play"].phase != PhaseOfPlayType.TRANSITION:
+            return cursor
+        cursor = cursor.prev_record
+
+    return None
+
 def find_last_sequence_event_in_final_third(event: Event, team: Team):
     """Walk backward to find the last sequence event in the attacking third for team."""
     cursor = event.prev_record
@@ -175,8 +186,14 @@ def detect_counter_attack(event: Event, state: PhaseOfPlay):
     Full counter-attack detection logic — cleanly isolated.
     Returns True if conditions satisfied, else False.
     """
+
+
     gain_event = find_last_possession_gain(event, state.team)
     if not gain_event or not is_own_half(gain_event):
+        return False
+
+    last_event_before_transition = find_last_event_before_transition(event)
+    if last_event_before_transition.team == event.team:
         return False
 
     possession_gain_time = gain_event.timestamp
