@@ -194,7 +194,7 @@ def detect_counter_attack(event: Event, state: PhaseOfPlay):
         return False
 
     last_event_before_transition = find_last_event_before_transition(event)
-    if last_event_before_transition.team == event.team:
+    if not last_event_before_transition or last_event_before_transition.team == event.team:
         return False
 
     possession_gain_time = gain_event.timestamp
