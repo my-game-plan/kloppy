@@ -298,7 +298,7 @@ def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOf
             return PhaseOfPlayType.TRANSITION
 
 
-        # Transition -> Build Up or Established Possession
+        # Counter Attack -> Build Up or Established Possession
         last_final_third_event = find_last_sequence_possessing_event_in_final_third(event, state.team)
         if last_final_third_event and event.team == state.team:
             if is_defending_half(event):
