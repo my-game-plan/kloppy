@@ -230,7 +230,7 @@ def detect_possession_to_transition(event: Event):
     """
     if event.get_qualifier_value(PossessionSwitchQualifier) == PossessionSwitchType.GAIN:
         return True
-        # Previous event was a possession loss
+    # Previous event was a possession loss
     if event.prev_record and event.prev_record.get_qualifier_value(
             PossessionSwitchQualifier) == PossessionSwitchType.LOSE:
         return True
