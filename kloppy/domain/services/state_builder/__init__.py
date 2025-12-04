@@ -56,7 +56,7 @@ def add_state(dataset: EventDataset, *builder_keys: List[str]) -> EventDataset:
     if len(builder_keys) == 1 and isinstance(builder_keys[0], list):
         builder_keys = builder_keys[0]
 
-    for builder_key in builder_keys:     # <-- sequential loop
+    for builder_key in builder_keys:
         dataset = _apply_single_state_builder(dataset, builder_key)
 
     return dataset
