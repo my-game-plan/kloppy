@@ -223,7 +223,7 @@ def detect_counter_attack(event: Event, state: PhaseOfPlay):
 def detect_possession_to_transition(event: Event):
     """
     Detect if build up or established possession should change to transition.
-      Returns
+    Returns
     -------
     bool
         True if a transition is detected, False otherwise.
