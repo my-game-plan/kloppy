@@ -234,7 +234,7 @@ def detect_possession_to_transition(event: Event):
     if event.prev_record and event.prev_record.get_qualifier_value(
             PossessionSwitchQualifier) == PossessionSwitchType.LOSE:
         return True
-
+    return False
 def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOfPlayType]:
     """
     Determine if an event triggers a phase-of-play transition.
