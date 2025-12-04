@@ -220,6 +220,21 @@ def detect_counter_attack(event: Event, state: PhaseOfPlay):
 
     return False
 
+def detect_possession_to_transition(event: Event):
+    """
+    Detect if build up or established possession should change to transition.
+      Returns
+    -------
+    bool
+        True if a transition is detected, False otherwise.
+    """
+    if event.get_qualifier_value(PossessionSwitchQualifier) == PossessionSwitchType.GAIN:
+        return True
+        # Previous event was a possession loss
+    if event.prev_record and event.prev_record.get_qualifier_value(
+            PossessionSwitchQualifier) == PossessionSwitchType.LOSE:
+        return True
+
 def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOfPlayType]:
     """
     Determine if an event triggers a phase-of-play transition.
@@ -280,9 +295,9 @@ def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOf
     # BUILD-UP
     if state.phase == PhaseOfPlayType.BUILD_UP:
         # Build-up -> Transition
-        possession_switch_type = event.get_qualifier_value(PossessionSwitchQualifier)
-        if possession_switch_type == PossessionSwitchType.GAIN:
+        if detect_possession_to_transition(event):
             return PhaseOfPlayType.TRANSITION
+
 
         # Build-up -> Established Possession
         # build up ends when ball goes over the halfway line
@@ -292,9 +307,7 @@ def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOf
     # COUNTER ATTACK
     if state.phase == PhaseOfPlayType.COUNTER_ATTACK:
         # Counter Attack -> Transition
-        # check if counter attack becomes build_up again
-        possession_switch_type = event.get_qualifier_value(PossessionSwitchQualifier)
-        if possession_switch_type == PossessionSwitchType.GAIN:
+        if event.get_qualifier_value(PossessionSwitchQualifier) == PossessionSwitchType.GAIN:
             return PhaseOfPlayType.TRANSITION
 
 
@@ -309,9 +322,9 @@ def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOf
     # ESTABLISHED POSSESSION
     if state.phase == PhaseOfPlayType.ESTABLISHED_POSSESSION:
         # Established Possession -> Transition
-        possession_switch_type = event.get_qualifier_value(PossessionSwitchQualifier)
-        if possession_switch_type == PossessionSwitchType.GAIN:
+        if detect_possession_to_transition(event):
             return PhaseOfPlayType.TRANSITION
+
 
         # Established Possession -> Build Up
         if event.team == state.team and is_defending_half(event):
@@ -321,9 +334,7 @@ def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOf
     if state.phase == PhaseOfPlayType.SET_PLAY:
         # Set Play -> Transition
 
-
-        possession_switch_type = event.get_qualifier_value(PossessionSwitchQualifier)
-        if possession_switch_type == PossessionSwitchType.GAIN:
+        if event.get_qualifier_value(PossessionSwitchQualifier) == PossessionSwitchType.GAIN:
             return PhaseOfPlayType.TRANSITION
 
 
