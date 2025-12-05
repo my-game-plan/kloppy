@@ -89,7 +89,7 @@ def close_to_goal(event: Event) -> bool:
 # ------------------------------------------------------------
 # Possession / Counter Attack Logic Helpers
 # ------------------------------------------------------------
-def find_last_possession_gain(event: Event, team: Team):
+def find_last_possession_gain(event: Event, team: Team) -> Optional[Event]:
     """Traverse backwards to find the last possession gain event for a team."""
     cursor = event.prev_record
     while cursor and cursor.period == event.period:
@@ -179,6 +179,20 @@ def find_sustaining_event(event: Event, team: Team):
         cursor = cursor.next_record
     return None
 
+def get_previous_on_ball_event(event: Event) -> Optional[Event]:
+    """Get the last on ball event in the same period"""
+    prev_event = event.prev_record
+    while prev_event and event.period == prev_event.period and isinstance(prev_event, EXCLUDED_OFF_BALL_EVENTS):
+        prev_event = prev_event.prev_record
+    return prev_event
+
+def get_last_possession_event(event) -> Optional[Event]:
+    last_possession_event = event.prev_record
+    while last_possession_event and last_possession_event.period == event.period and not is_possessing_event(last_possession_event):
+        last_possession_event = last_possession_event.prev_record
+    return last_possession_event
+
+
 def detect_counter_attack(event: Event, state: PhaseOfPlay):
     """
     Detect a counter-attack based on possession gain, pitch location,
@@ -231,8 +245,8 @@ def detect_possession_to_transition(event: Event):
     if event.get_qualifier_value(PossessionSwitchQualifier) == PossessionSwitchType.GAIN:
         return True
     # Previous event was a possession loss
-    if event.prev_record and event.prev_record.get_qualifier_value(
-            PossessionSwitchQualifier) == PossessionSwitchType.LOSE:
+    prev_on_ball_event = get_previous_on_ball_event(event)
+    if prev_on_ball_event and prev_on_ball_event.get_qualifier_value( PossessionSwitchQualifier) == PossessionSwitchType.LOSE:
         return True
     return False
 def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOfPlayType]:
@@ -277,9 +291,7 @@ def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOf
             return PhaseOfPlayType.COUNTER_ATTACK
 
         # Re-check if transition should restart
-        last_possession_event = event.prev_record
-        while last_possession_event and not is_possessing_event(last_possession_event):
-            last_possession_event = last_possession_event.prev_record
+        last_possession_event = get_last_possession_event(event)
         if last_possession_event:
             switch = last_possession_event.get_qualifier_value(PossessionSwitchQualifier)
             if switch == PossessionSwitchType.GAIN:
@@ -338,9 +350,7 @@ def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOf
             return PhaseOfPlayType.TRANSITION
 
 
-        prev_event = event.prev_record
-        while prev_event and isinstance(prev_event, EXCLUDED_OFF_BALL_EVENTS):
-            prev_event = prev_event.prev_record
+        prev_event = get_previous_on_ball_event(event)
         if prev_event:
             # Set Play -> Build Up / Established Possession
             prev_event_set_piece_type = prev_event.get_qualifier_value(SetPieceQualifier)
