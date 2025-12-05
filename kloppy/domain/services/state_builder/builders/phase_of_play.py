@@ -165,7 +165,7 @@ def find_first_close_to_goal_event(event: Event, team: Team):
         if is_possessing_event(cursor):
             if cursor.team != team:
                 return None
-            if close_to_goal(cursor):
+            if close_to_goal(cursor) or isinstance(cursor, ShotEvent):
                 return cursor
         cursor = cursor.next_record
     return None
