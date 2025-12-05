@@ -26,7 +26,6 @@ BALL_PROGRESSION_THRESHOLD_METERS = 10.0
 COUNTER_ATTACK_MAX_TIME_CLOSE_TO_GOAL_SECONDS = 15
 COUNTER_ATTACK_EXTRA_TIME_CLOSE_TO_GOAL_SECONDS = 5
 COUNTER_ATTACK_SUSTAIN_POSSESSION_MAX_TIME_SECONDS = 15
-MIN_TRANSITION_SECONDS = 3
 
 class PhaseOfPlayType(Enum):
     TRANSITION = "transition"
@@ -135,15 +134,6 @@ def find_last_event_before_transition(event):
     while cursor and cursor.period == event.period:
         if cursor.state["phase_of_play"].phase != PhaseOfPlayType.TRANSITION:
             return cursor
-        cursor = cursor.prev_record
-    return None
-
-def find_first_transition_event(event) -> Optional[Event]:
-    """Traverse backwards to find the event that was the first of the current transition phase."""
-    cursor = event.prev_record
-    while cursor and cursor.period == event.period:
-        if cursor.state["phase_of_play"].phase != PhaseOfPlayType.TRANSITION:
-            return cursor.next_record
         cursor = cursor.prev_record
     return None
 
@@ -307,15 +297,11 @@ def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOf
             if switch == PossessionSwitchType.GAIN:
                 return PhaseOfPlayType.TRANSITION
 
-        # At least MIN_TRANSITION_SECONDS transition time before changing phase
-        first_transition_event = find_first_transition_event(event)
-        if first_transition_event and (event.time - first_transition_event.time).total_seconds() < MIN_TRANSITION_SECONDS:
-            return PhaseOfPlayType.TRANSITION
 
         # Transition -> Build-Up / Established Possession
-        # Transition ends when two consecutive team possession actions occur
+        # Transition ends when two consecutive team possession actions occur from different player
         same_team_prev = last_possession_event and last_possession_event.team == event.team
-        if same_team_prev and is_possessing_event(event):
+        if same_team_prev and is_possessing_event(event) and last_possession_event.player != event.player:
             return PhaseOfPlayType.BUILD_UP if is_defending_half(event) else PhaseOfPlayType.ESTABLISHED_POSSESSION
 
     # BUILD-UP
