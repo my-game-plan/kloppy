@@ -249,6 +249,32 @@ def detect_possession_to_transition(event: Event):
     if prev_on_ball_event and prev_on_ball_event.get_qualifier_value( PossessionSwitchQualifier) == PossessionSwitchType.LOSE:
         return True
     return False
+
+def detect_exit_transition(event: Event, last_possession_event: Optional[Event]) -> bool:
+    """
+    Detect if transition should end based on consecutive possessing events from the same team but different players.
+    """
+    same_team_prev = last_possession_event and last_possession_event.team == event.team
+    if same_team_prev and is_possessing_event(event) and last_possession_event.player != event.player:
+        return True
+    return False
+
+def detect_exit_set_play(event: Event) -> bool:
+    """
+    Detect if set-play should end based on consecutive possessing events from the same team but different players.
+    """
+    last_possession_event = get_last_possession_event(event)
+    if last_possession_event.get_qualifier_value(SetPieceQualifier):
+        return False
+    prev_event = get_previous_on_ball_event(event)
+    if not prev_event or prev_event.team != event.team:
+        return False
+
+    same_team_prev = last_possession_event and last_possession_event.team == event.team
+    if same_team_prev and is_possessing_event(event) and last_possession_event.player != event.player:
+        return True
+    return False
+
 def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOfPlayType]:
     """
     Determine if an event triggers a phase-of-play transition.
@@ -299,9 +325,7 @@ def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOf
 
 
         # Transition -> Build-Up / Established Possession
-        # Transition ends when two consecutive team possession actions occur from different player
-        same_team_prev = last_possession_event and last_possession_event.team == event.team
-        if same_team_prev and is_possessing_event(event) and last_possession_event.player != event.player:
+        if detect_exit_transition(event, last_possession_event):
             return PhaseOfPlayType.BUILD_UP if is_defending_half(event) else PhaseOfPlayType.ESTABLISHED_POSSESSION
 
     # BUILD-UP
@@ -350,14 +374,8 @@ def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOf
             return PhaseOfPlayType.TRANSITION
 
 
-        prev_event = get_previous_on_ball_event(event)
-        if prev_event:
-            # Set Play -> Build Up / Established Possession
-            prev_event_set_piece_type = prev_event.get_qualifier_value(SetPieceQualifier)
-            same_team_prev = prev_event.team == event.team and is_possessing_event(prev_event)
-            # exit set-play when two consecutive possessing actions from same team occur after set piece
-            if not prev_event_set_piece_type and same_team_prev and is_possessing_event(event):
-                return PhaseOfPlayType.BUILD_UP if is_defending_half(event) else PhaseOfPlayType.ESTABLISHED_POSSESSION
+        if detect_exit_set_play(event):
+            return PhaseOfPlayType.BUILD_UP if is_defending_half(event) else PhaseOfPlayType.ESTABLISHED_POSSESSION
 
     # Default: stay in the same phase
     return None
