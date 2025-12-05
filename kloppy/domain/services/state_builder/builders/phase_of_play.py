@@ -26,6 +26,7 @@ BALL_PROGRESSION_THRESHOLD_METERS = 10.0
 COUNTER_ATTACK_MAX_TIME_CLOSE_TO_GOAL_SECONDS = 15
 COUNTER_ATTACK_EXTRA_TIME_CLOSE_TO_GOAL_SECONDS = 5
 COUNTER_ATTACK_SUSTAIN_POSSESSION_MAX_TIME_SECONDS = 15
+MIN_TRANSITION_SECONDS = 3
 
 class PhaseOfPlayType(Enum):
     TRANSITION = "transition"
@@ -297,10 +298,14 @@ def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOf
             if switch == PossessionSwitchType.GAIN:
                 return PhaseOfPlayType.TRANSITION
 
+        # At least MIN_TRANSITION_SECONDS transition time before changing phase
+        last_event_before_transition = find_last_event_before_transition(event)
+        if last_event_before_transition and (event.time - last_event_before_transition.time).total_seconds() < MIN_TRANSITION_SECONDS:
+            return PhaseOfPlayType.TRANSITION
 
         # Transition -> Build-Up / Established Possession
         # Transition ends when two consecutive team possession actions occur
-        same_team_prev = last_possession_event and last_possession_event.team == event.team and is_possessing_event(last_possession_event)
+        same_team_prev = last_possession_event and last_possession_event.team == event.team
         if same_team_prev and is_possessing_event(event):
             return PhaseOfPlayType.BUILD_UP if is_defending_half(event) else PhaseOfPlayType.ESTABLISHED_POSSESSION
 
