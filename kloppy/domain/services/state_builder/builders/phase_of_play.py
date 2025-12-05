@@ -138,6 +138,15 @@ def find_last_event_before_transition(event):
         cursor = cursor.prev_record
     return None
 
+def find_first_transition_event(event) -> Optional[Event]:
+    """Traverse backwards to find the event that was the first of the current transition phase."""
+    cursor = event.prev_record
+    while cursor and cursor.period == event.period:
+        if cursor.state["phase_of_play"].phase != PhaseOfPlayType.TRANSITION:
+            return cursor.next_record
+        cursor = cursor.prev_record
+    return None
+
 def find_last_sequence_possessing_event_in_final_third(event: Event, team: Team):
     """
     Traverse backwards to find the last possessing event in the same sequence
@@ -299,8 +308,8 @@ def determine_phase_change(event: Event, state: PhaseOfPlay) -> Optional[PhaseOf
                 return PhaseOfPlayType.TRANSITION
 
         # At least MIN_TRANSITION_SECONDS transition time before changing phase
-        last_event_before_transition = find_last_event_before_transition(event)
-        if last_event_before_transition and (event.time - last_event_before_transition.time).total_seconds() < MIN_TRANSITION_SECONDS:
+        first_transition_event = find_first_transition_event(event)
+        if first_transition_event and (event.time - first_transition_event.time).total_seconds() < MIN_TRANSITION_SECONDS:
             return PhaseOfPlayType.TRANSITION
 
         # Transition -> Build-Up / Established Possession
