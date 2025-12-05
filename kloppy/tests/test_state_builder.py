@@ -201,7 +201,7 @@ class TestStateBuilder:
             team=established_possession_event.team
         )
 
-        counter_attack_event = dataset_with_state.get_event_by_id("72356e49-b224-450d-9a25-fb09e3627ab2")
+        counter_attack_event = dataset_with_state.get_event_by_id("a2a1b8bd-5534-4262-b88c-41f520bc81f3")
         assert counter_attack_event.state["phase_of_play"] == PhaseOfPlay(
             phase=PhaseOfPlayType.COUNTER_ATTACK,
             team=counter_attack_event.team
