@@ -7,48 +7,56 @@ from kloppy.domain import EventDataset
 from . import builders as _builders  # noqa: F401
 from .registered import create_state_builder
 
-
-def add_state(dataset: EventDataset, *builder_keys: List[str]) -> EventDataset:
+def _apply_single_state_builder(dataset: EventDataset, builder_key: str) -> EventDataset:
     """
-    Add state
+    Apply a single state builder to the dataset.
 
     Arguments:
-        - builder_keys: `lineup` `score` `sequence`
+        dataset: The event dataset to enrich with state.
+        builder_key: The key identifying which state builder to use.
+
+    Returns:
+        EventDataset with the specified state builder applied to all events.
+    """
+    builder = create_state_builder(builder_key)
+    state = builder.initial_state(dataset)
+
+    events = []
+    for event in dataset.events:
+        state = builder.reduce_before(state, event)
+
+        # Merge NEW STATE slice into existing event.state
+        event_state = event.state
+        event_state[builder_key] = state
+
+        events.append(replace(event, state=event_state))
+
+        state = builder.reduce_after(state, event)
+
+    builder.post_process(events)
+
+    return replace(dataset, records=events)
+def add_state(dataset: EventDataset, *builder_keys: List[str]) -> EventDataset:
+    """
+    Add state to events using one or more state builders.
+
+    State builders are applied sequentially: the first builder enriches the dataset,
+    and subsequent builders see the results of previous builders.
+
+    Arguments:
+        builder_keys: One or more of: 'lineup', 'score', 'sequence', 'formation', 'phase_of_play'
 
     Examples:
         >>> dataset = dataset.add_state('lineup', 'score')
+        >>> dataset = dataset.add_state('sequence', 'phase_of_play')
 
     Returns:
-        [`EventDataset`][kloppy.domain.models.event.EventDataset]
+        [`EventDataset`][kloppy.domain.models.event.EventDataset] with state information attached to events
     """
     if len(builder_keys) == 1 and isinstance(builder_keys[0], list):
         builder_keys = builder_keys[0]
 
-    builders = {
-        builder_key: create_state_builder(builder_key)
-        for builder_key in builder_keys
-    }
+    for builder_key in builder_keys:
+        dataset = _apply_single_state_builder(dataset, builder_key)
 
-    state = {
-        builder_key: builder.initial_state(dataset)
-        for builder_key, builder in builders.items()
-    }
-
-    events = []
-    for event in dataset.events:
-        state = {
-            builder_key: builder.reduce_before(state[builder_key], event)
-            for builder_key, builder in builders.items()
-        }
-
-        events.append(replace(event, state=state))
-
-        state = {
-            builder_key: builder.reduce_after(state[builder_key], event)
-            for builder_key, builder in builders.items()
-        }
-
-    for builder_key, builder in builders.items():
-        builder.post_process(events)
-
-    return replace(dataset, records=events)
+    return dataset
