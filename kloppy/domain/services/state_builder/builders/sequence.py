@@ -98,7 +98,7 @@ def should_open_sequence(
         ):
             next_event = next_event.next_record
         can_open_sequence = (
-            next_event.team == event.team and is_possessing_event(next_event)
+            next_event and next_event.team == event.team and is_possessing_event(next_event)
         )
     return can_open_sequence and (
         state is None
