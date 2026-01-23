@@ -266,6 +266,31 @@ LINEUP_INFORMATION_EVENTS = (
 logger = logging.getLogger(__name__)
 
 
+def _get_event_fingerprint(raw_event: Dict) -> str:
+    """
+    Create a content-based fingerprint for an event to detect duplicates.
+
+    This fingerprint includes all meaningful event data except the ID,
+    so events with the same content but different IDs will have the same fingerprint.
+    """
+    fingerprint_fields = [
+        raw_event.get("action_id"),
+        raw_event.get("creator_id"),
+        raw_event.get("creator_team_id"),
+        raw_event.get("recipient_id"),
+        raw_event.get("second"),
+        raw_event.get("relative_coord_x"),
+        raw_event.get("relative_coord_y"),
+        raw_event.get("relative_coord_x_destination"),
+        raw_event.get("relative_coord_y_destination"),
+        raw_event.get("set_piece_id"),
+        raw_event.get("body_part_id"),
+        raw_event.get("gate_coord_x"),
+        raw_event.get("gate_coord_y"),
+    ]
+    return str(tuple(fingerprint_fields))
+
+
 class SmrtStatsInputs(NamedTuple):
     raw_data: IO[bytes]
     pitch_length: Optional[float] = None
@@ -651,11 +676,20 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
         possession_team = None
 
         events = []
+        seen_fingerprints = set()
         for period_events_title, period_id in zip(
             ["first_half_markers", "second_half_markers"], [1, 2]
         ):
             period_events = raw_data[period_events_title]
             for idx, raw_event in enumerate(period_events):
+                # Deduplicate events with same content but different IDs
+                fingerprint = _get_event_fingerprint(raw_event)
+                if fingerprint in seen_fingerprints:
+                    logger.debug(
+                        f"Skipping duplicate event with id {raw_event['id']}"
+                    )
+                    continue
+                seen_fingerprints.add(fingerprint)
                 action_id = raw_event["action_id"]
                 action_title = raw_event["action"]["title"].lower()
                 if (
