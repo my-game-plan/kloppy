@@ -269,7 +269,7 @@ class TestKoraStatsShotEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all shot events"""
         events = dataset.find_all("shot")
-        assert len(events) == 20
+        assert len(events) == 21
 
     def test_open_play(self, dataset: EventDataset):
         """Verify specific attributes of simple open play shot"""
@@ -286,6 +286,19 @@ class TestKoraStatsShotEvent:
         )
         # An open play shot should not have a set piece qualifier
         assert shot.get_qualifier_value(SetPieceQualifier) is None
+
+    def test_one_on_one_goal(self, dataset: EventDataset):
+        """OneOnOne events should be deserialized as shots"""
+        shot = dataset.get_event_by_id("144880629")
+        assert shot.event_type == EventType.SHOT
+        assert shot.result == ShotResult.GOAL
+        assert shot.coordinates == Point(x=95, y=44)
+        assert shot.result_coordinates == Point3D(
+            x=100, y=45.86666666666667, z=27
+        )
+        assert (
+            shot.get_qualifier_value(BodyPartQualifier) == BodyPart.RIGHT_FOOT
+        )
 
 
 class TestKoraStatsClearanceEvent:

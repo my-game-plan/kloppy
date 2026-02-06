@@ -461,7 +461,10 @@ class SHOT(EVENT):
             qualifiers.append(SetPieceQualifier(value=SetPieceType.FREE_KICK))
 
         result_coordinates = None
-        if next_event["event"] == "Shoot Location":
+        if (
+            next_event is not None
+            and next_event.get("event") == "Shoot Location"
+        ):
             x_coordinate = 100
             y_coordinate = (next_event["x"] / 300) * 10 + 50
             z_coordinate = next_event["y"]
@@ -880,7 +883,7 @@ def event_decoder(raw_event: Dict) -> Optional[EVENT]:
         EVENT_CATEGORY_TYPE.GOALKEEPER_CROSS: GOALKEEPER,
         EVENT_CATEGORY_TYPE.GOALKEEPER_FREEKICK: GOALKEEPER,
         EVENT_CATEGORY_TYPE.GOALKEEPER_PENALTY: GOALKEEPER,
-        EVENT_CATEGORY_TYPE.GOALKEEPER_ONE_ON_ONE: None,
+        EVENT_CATEGORY_TYPE.GOALKEEPER_ONE_ON_ONE: GOALKEEPER,
         EVENT_CATEGORY_TYPE.GOALKEEPER_SHOOT: GOALKEEPER,
         # EVENT_CATEGORY_TYPE.GOALKEEPER_PENALTY_SHOOT_OUT: None,
         EVENT_CATEGORY_TYPE.GOALKEEPER_OWN_GOAL_CONCEDED: None,
@@ -919,7 +922,7 @@ def event_decoder(raw_event: Dict) -> Optional[EVENT]:
         EVENT_CATEGORY_TYPE.POSSESSION_TAKE_ON: DRIBBLE,
         # EVENT_CATEGORY_TYPE.POSSESSION_TAKE_ON_AGAINST: DRIBBLE,
         EVENT_CATEGORY_TYPE.ATTACK_SHOOT: SHOT,
-        EVENT_CATEGORY_TYPE.ATTACK_ONE_ON_ONE: None,
+        EVENT_CATEGORY_TYPE.ATTACK_ONE_ON_ONE: SHOT,
         EVENT_CATEGORY_TYPE.ATTACK_PENALTY: SHOT,
         EVENT_CATEGORY_TYPE.ATTACK_CORNER: SHOT,
         EVENT_CATEGORY_TYPE.ATTACK_FREEKICK: SHOT,
