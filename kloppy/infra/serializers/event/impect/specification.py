@@ -295,6 +295,7 @@ class SHOT(EVENT):
         PENALTY_KICK = "PENALTY_KICK"
         HEADER = "HEADER"
         DIRECT_FREE_KICK = "DIRECT_FREE_KICK"
+        CORNER = "CORNER"
         BLOCK = "BLOCK"
 
     class RESULT(Enum):
@@ -326,6 +327,10 @@ class SHOT(EVENT):
             elif action == self.ACTION.DIRECT_FREE_KICK:
                 qualifiers.append(
                     SetPieceQualifier(value=SetPieceType.FREE_KICK)
+                )
+            elif action == self.ACTION.CORNER:
+                qualifiers.append(
+                    SetPieceQualifier(value=SetPieceType.CORNER_KICK)
                 )
             elif (
                 action == self.ACTION.BLOCK and shot_result != ShotResult.GOAL
