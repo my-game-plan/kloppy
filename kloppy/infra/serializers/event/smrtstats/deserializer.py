@@ -677,7 +677,7 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
 
         events = []
         seen_fingerprints = set()
-        for period_events_title, period_id in zip(
+        for period_events_title, default_period_id in zip(
             ["first_half_markers", "second_half_markers"], [1, 2]
         ):
             period_events = raw_data[period_events_title]
@@ -701,8 +701,28 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                     player = team.get_player_by_id(
                         str(raw_event["creator_id"])
                     )
+                    event_second = raw_event["second"]
                     period = next(
-                        period for period in periods if period.id == period_id
+                        (
+                            p
+                            for p in periods
+                            if p.start_timestamp.total_seconds()
+                            <= event_second
+                            <= p.end_timestamp.total_seconds()
+                        ),
+                        min(
+                            periods,
+                            key=lambda p: min(
+                                abs(
+                                    event_second
+                                    - p.start_timestamp.total_seconds()
+                                ),
+                                abs(
+                                    event_second
+                                    - p.end_timestamp.total_seconds()
+                                ),
+                            ),
+                        ),
                     )
                     if action_id in BALL_OWNING_IDS:
                         possession_team = team
