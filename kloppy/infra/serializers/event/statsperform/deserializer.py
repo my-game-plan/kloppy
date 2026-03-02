@@ -807,6 +807,7 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
             ]
 
             possession_team = None
+            periods_with_start_event = set()
             events = []
             for idx, raw_event in enumerate(raw_events):
                 if raw_event.contestant_id == teams[0].team_id:
@@ -847,6 +848,7 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                         f"Set start of period {period.id} to {raw_event.timestamp}"
                     )
                     period.start_timestamp = raw_event.timestamp
+                    periods_with_start_event.add(period.id)
                 elif raw_event.type_id == EVENT_TYPE_END_PERIOD:
                     logger.debug(
                         f"Set end of period {period.id} to {raw_event.timestamp}"
@@ -883,7 +885,9 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                     generic_event_kwargs = dict(
                         # from DataRecord
                         period=period,
-                        timestamp=raw_event.timestamp - period.start_timestamp,
+                        timestamp=timedelta(0)
+                        if period.id not in periods_with_start_event
+                        else raw_event.timestamp - period.start_timestamp,
                         ball_owning_team=possession_team,
                         ball_state=ball_state,
                         # from Event
