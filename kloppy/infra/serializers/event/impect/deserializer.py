@@ -275,7 +275,7 @@ class ImpectDeserializer(EventDataDeserializer[ImpectInputs]):
                 # Set period end to cumulative timestamp
                 periods[-1] = replace(
                     periods[-1],
-                    end_timestamp=periods[-1].start_timestamp + timestamp,
+                    end_timestamp=timestamp,
                 )
 
         return periods

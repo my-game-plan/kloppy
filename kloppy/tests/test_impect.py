@@ -217,20 +217,26 @@ class TestImpectMetadata:
         # Period 1 assertions
         period_1 = dataset.metadata.periods[0]
         assert period_1.id == 1
-        assert period_1.start_timestamp == timedelta(
-            seconds=0
-        )  # Should start at 0
-        assert period_1.end_timestamp is not None
-        assert period_1.end_timestamp > period_1.start_timestamp
+        assert period_1.start_timestamp == timedelta(seconds=0)
+        assert period_1.end_timestamp == timedelta(
+            minutes=47, seconds=50, milliseconds=385
+        )
+        period_1_duration = period_1.end_timestamp - period_1.start_timestamp
+        assert (
+            timedelta(minutes=45) < period_1_duration < timedelta(minutes=60)
+        )
 
         # Period 2 assertions
         period_2 = dataset.metadata.periods[1]
         assert period_2.id == 2
+        assert period_2.start_timestamp == period_1.end_timestamp
+        assert period_2.end_timestamp == timedelta(
+            seconds=5583, microseconds=97999
+        )
+        period_2_duration = period_2.end_timestamp - period_2.start_timestamp
         assert (
-            period_2.start_timestamp == period_1.end_timestamp
-        )  # Should start where period 1 ended
-        assert period_2.end_timestamp is not None
-        assert period_2.end_timestamp > period_2.start_timestamp
+            timedelta(minutes=45) < period_2_duration < timedelta(minutes=60)
+        )
 
         # Verify cumulative nature: period 2 should start after period 1 ends
         assert period_2.start_timestamp > period_1.start_timestamp
