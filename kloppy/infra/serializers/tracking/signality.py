@@ -27,6 +27,7 @@ from kloppy.domain.services.frame_factory import create_frame
 from kloppy.infra.serializers.tracking.deserializer import (
     TrackingDataDeserializer,
 )
+from kloppy.exceptions import DeserializationError
 from kloppy.io import FileLike
 from kloppy.utils import performance_logging
 
@@ -72,8 +73,10 @@ class SignalityDeserializer(TrackingDataDeserializer[SignalityInputs]):
             ball_coordinates = None
 
         ball_owning_team = (
-            teams[0] if frame["ball"]["team"] == "home_team"
-            else teams[1] if frame["ball"]["team"] == "away_team"
+            teams[0]
+            if frame["ball"]["team"] == "home_team"
+            else teams[1]
+            if frame["ball"]["team"] == "away_team"
             else None
         )
         players_data = {}
@@ -157,9 +160,21 @@ class SignalityDeserializer(TrackingDataDeserializer[SignalityInputs]):
             )
 
             last_frame = p_tracking[-1]
-            assert (
-                last_frame["state"] == "end"
-            ), "Last frame must have state 'end'"
+            if last_frame["state"] != "end":
+                last_match_time_minutes = last_frame["match_time"] / 1000 / 60
+                if last_match_time_minutes < 45:
+                    raise DeserializationError(
+                        f"Period {period_id}: tracking data is truncated "
+                        f"({last_match_time_minutes:.1f} min, expected >= 45 min). "
+                        f"Last frame state is '{last_frame['state']}' instead of 'end'."
+                    )
+                else:
+                    warnings.warn(
+                        f"Period {period_id}: last frame has state "
+                        f"'{last_frame['state']}' instead of 'end' at "
+                        f"{last_match_time_minutes:.1f} min. "
+                        f"Using last available frame as period boundary."
+                    )
             end_time = datetime.utcfromtimestamp(last_frame["utc_time"] / 1000)
 
             periods.append(
