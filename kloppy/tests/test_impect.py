@@ -231,7 +231,7 @@ class TestImpectMetadata:
         assert period_2.id == 2
         assert period_2.start_timestamp == period_1.end_timestamp
         assert period_2.end_timestamp == timedelta(
-            seconds=5583, microseconds=97999
+            minutes=95, seconds=53, microseconds=482999
         )
         period_2_duration = period_2.end_timestamp - period_2.start_timestamp
         assert (

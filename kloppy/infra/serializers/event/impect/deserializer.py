@@ -32,7 +32,6 @@ from kloppy.domain import (
 from kloppy.infra.serializers.event.deserializer import EventDataDeserializer
 from kloppy.infra.serializers.event.impect.helpers import (
     insert,
-    parse_cumulative_timestamp,
     parse_timestamp,
 )
 from kloppy.infra.serializers.event.impect.specification import (
@@ -253,9 +252,6 @@ class ImpectDeserializer(EventDataDeserializer[ImpectInputs]):
                 next_event = raw_events[idx + 1]
                 next_period_id = next_event["periodId"]
 
-            timestamp, _ = parse_cumulative_timestamp(
-                raw_event["gameTime"]["gameTime"]
-            )
             period_id = raw_event["periodId"]
 
             if len(periods) == 0 or periods[-1].id != period_id:
@@ -272,10 +268,14 @@ class ImpectDeserializer(EventDataDeserializer[ImpectInputs]):
                 )
 
             if next_period_id != period_id:
-                # Set period end to cumulative timestamp
+                # Use parse_timestamp (period-relative) + period start
+                # to be consistent with how event timestamps are computed
+                timestamp, _ = parse_timestamp(
+                    raw_event["gameTime"]["gameTime"]
+                )
                 periods[-1] = replace(
                     periods[-1],
-                    end_timestamp=timestamp,
+                    end_timestamp=periods[-1].start_timestamp + timestamp,
                 )
 
         return periods
