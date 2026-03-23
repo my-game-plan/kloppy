@@ -73,7 +73,7 @@ def _load_periods(metadata_elm) -> List[Period]:
                 end_frame = int(float(params["End Frame"]))
                 periods.append(
                     Period(
-                        id=int(params.get("Label", len(periods) + 1)),
+                        id=int(params.get("Label") or len(periods) + 1),
                         start_timestamp=timedelta(
                             seconds=start_frame / frame_rate
                         ),
