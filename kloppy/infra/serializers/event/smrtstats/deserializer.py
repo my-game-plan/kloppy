@@ -641,17 +641,44 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
 
     @staticmethod
     def create_periods(raw_events: Dict) -> List[Period]:
+        """Create periods from event markers rather than video offsets.
+
+        The offsets field contains video file positions, but event timestamps
+        (the 'second' field) are anchored to period marker events
+        (action_id=1 for 1st half, action_id=75 for 2nd half).
+        Using video offsets causes incorrect timestamps when the video
+        includes non-play footage (e.g. half-time).
+        """
         periods = []
-        for idx, (label, time_info) in enumerate(
-            raw_events["offsets"].items()
-        ):
-            if time_info:
-                period = Period(
-                    id=idx + 1,
-                    start_timestamp=timedelta(seconds=time_info["start"]),
-                    end_timestamp=timedelta(seconds=time_info["end"]),
-                )
-                periods.append(period)
+
+        half_configs = [
+            ("first_half_markers", FIRST_HALF),
+            ("second_half_markers", SECOND_HALF),
+        ]
+
+        for markers_key, start_action_id in half_configs:
+            markers = raw_events.get(markers_key, [])
+            if not markers:
+                continue
+
+            start_marker = next(
+                (e for e in markers if e["action_id"] == start_action_id),
+                None,
+            )
+            if start_marker is None:
+                continue
+
+            start_second = start_marker["second"]
+            end_second = max(
+                e["second"] for e in markers if e["second"] is not None
+            )
+
+            period = Period(
+                id=len(periods) + 1,
+                start_timestamp=timedelta(seconds=start_second),
+                end_timestamp=timedelta(seconds=end_second),
+            )
+            periods.append(period)
 
         return periods
 
