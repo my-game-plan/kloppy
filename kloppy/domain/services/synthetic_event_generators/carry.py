@@ -17,7 +17,7 @@ from kloppy.domain import (
     GoalkeeperEvent,
     GenericEvent,
 )
-from kloppy.domain.models.event import PressureEvent, SetPieceQualifier
+from kloppy.domain.models.event import PassResult, PressureEvent, SetPieceQualifier
 from kloppy.domain.services.synthetic_event_generators.synthetic_event_generator import (
     SyntheticEventGenerator,
 )
@@ -46,6 +46,8 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
 
         for idx, event in enumerate(dataset.events):
             if not isinstance(event, VALID_EVENT):
+                continue
+            if isinstance(event, PassEvent) and event.result != PassResult.COMPLETE:
                 continue
             idx_plus = 1
             next_event = None
