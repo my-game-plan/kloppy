@@ -641,44 +641,170 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
 
     @staticmethod
     def create_periods(raw_events: Dict) -> List[Period]:
-        """Create periods from event markers rather than video offsets.
+        """Build Period objects from the raw SmrtStats marker lists.
 
-        The offsets field contains video file positions, but event timestamps
-        (the 'second' field) are anchored to period marker events
-        (action_id=1 for 1st half, action_id=75 for 2nd half).
-        Using video offsets causes incorrect timestamps when the video
-        includes non-play footage (e.g. half-time).
+        SmrtStats stores events across up to four marker lists
+        (``first_half_markers``, ``second_half_markers``,
+        ``first_extra_time_markers``, ``second_extra_time_markers``).
+        The extra-time lists are duplicates of subsets of
+        ``second_half_markers``, which in every observed ET match contains
+        the full 2nd-half-onward timeline including extra time and the
+        penalty shootout. Two further deviations also occur:
+
+        * Some matches (e.g. 720080 Argentinos-Barcelona, 720083
+          Tolima-Tachira) dump both regulation halves into
+          ``first_half_markers`` and put only the shootout into
+          ``second_half_markers``.
+        * MATCH_END (89) is always the final marker regardless of whether
+          the match went to extra time or penalties.
+
+        Rather than branch on these layouts, this routine pools markers
+        from all four lists, deduplicates by id, and derives periods from
+        SmrtStats's five boundary action_ids:
+
+        ==================================================  ============
+        action_id                                            Role
+        ==================================================  ============
+        1   FIRST_HALF                                       P1 start
+        75  SECOND_HALF                                      P2 start
+        81  FIRST_HALF_ADDITIONAL_TIME_START                 P3 start
+        85  SECOND_HALF_ADDITIONAL_TIME_START                P4 start
+        74  HALF_TIME                                        period end
+        89  MATCH_END                                        dataset end
+        ==================================================  ============
+
+        A penalty shootout (P5) is detected when a HALF_TIME marker
+        appears after the last period-start marker and non-MATCH_END
+        events occur between that HALF_TIME and MATCH_END. P5 covers that
+        range.
+
+        Kloppy convention: P1/P2 = regulation, P3/P4 = extra time,
+        P5 = penalty shootout.
         """
-        periods = []
+        all_marker_keys = (
+            "first_half_markers",
+            "second_half_markers",
+            "first_extra_time_markers",
+            "second_extra_time_markers",
+        )
 
-        half_configs = [
-            ("first_half_markers", FIRST_HALF),
-            ("second_half_markers", SECOND_HALF),
+        seen_ids: set = set()
+        all_markers: List[Dict] = []
+        for key in all_marker_keys:
+            for event in raw_events.get(key, []) or []:
+                event_id = event.get("id")
+                if event_id is not None and event_id in seen_ids:
+                    continue
+                if event_id is not None:
+                    seen_ids.add(event_id)
+                all_markers.append(event)
+
+        valid_seconds = [
+            e["second"] for e in all_markers if e.get("second") is not None
         ]
+        if not valid_seconds:
+            return []
 
-        for markers_key, start_action_id in half_configs:
-            markers = raw_events.get(markers_key, [])
-            if not markers:
-                continue
+        def _first_second(action_id: int) -> Optional[float]:
+            matches = [
+                e["second"]
+                for e in all_markers
+                if e.get("action_id") == action_id
+                and e.get("second") is not None
+            ]
+            return min(matches) if matches else None
 
-            start_marker = next(
-                (e for e in markers if e["action_id"] == start_action_id),
-                None,
+        period_start_action_ids = [
+            (1, FIRST_HALF),
+            (2, SECOND_HALF),
+            (3, FIRST_HALF_ADDITIONAL_TIME_START),
+            (4, SECOND_HALF_ADDITIONAL_TIME_START),
+        ]
+        boundaries: List[Tuple[int, float]] = []
+        for pid, aid in period_start_action_ids:
+            start = _first_second(aid)
+            if start is not None:
+                boundaries.append((pid, start))
+
+        # Fall back to the earliest event if no FIRST_HALF marker is present.
+        if not boundaries or boundaries[0][0] != 1:
+            boundaries.insert(0, (1, min(valid_seconds)))
+
+        half_times = sorted(
+            {
+                e["second"]
+                for e in all_markers
+                if e.get("action_id") == HALF_TIME
+                and e.get("second") is not None
+            }
+        )
+        match_end_candidates = [
+            e["second"]
+            for e in all_markers
+            if e.get("action_id") == MATCH_END and e.get("second") is not None
+        ]
+        match_end = min(match_end_candidates) if match_end_candidates else None
+        max_second = max(valid_seconds)
+
+        last_period_start = boundaries[-1][1]
+        shootout_start: Optional[float] = None
+        ht_after_last_start = [h for h in half_times if h > last_period_start]
+        if ht_after_last_start:
+            candidate = ht_after_last_start[0]
+            # Confirm a shootout: real events (anything other than the
+            # MATCH_END marker itself) between the candidate and the end.
+            events_after_candidate = [
+                e
+                for e in all_markers
+                if e.get("second") is not None
+                and e["second"] > candidate
+                and e.get("action_id") != MATCH_END
+            ]
+            if events_after_candidate:
+                shootout_start = candidate
+
+        def _period_end(start: float, next_start: Optional[float]) -> float:
+            if next_start is not None:
+                ht_in_range = [
+                    h for h in half_times if start < h <= next_start
+                ]
+                if ht_in_range:
+                    return ht_in_range[0]
+                return next_start
+            # Last regulation/ET period with no shootout: end at the first
+            # HALF_TIME after start, else MATCH_END, else max event second.
+            ht_after = [h for h in half_times if h > start]
+            if ht_after:
+                return ht_after[0]
+            if match_end is not None:
+                return match_end
+            return max_second
+
+        periods: List[Period] = []
+        for idx, (pid, start) in enumerate(boundaries):
+            if idx + 1 < len(boundaries):
+                end = _period_end(start, boundaries[idx + 1][1])
+            elif shootout_start is not None:
+                end = shootout_start
+            else:
+                end = _period_end(start, None)
+            periods.append(
+                Period(
+                    id=pid,
+                    start_timestamp=timedelta(seconds=start),
+                    end_timestamp=timedelta(seconds=end),
+                )
             )
-            if start_marker is None:
-                continue
 
-            start_second = start_marker["second"]
-            end_second = max(
-                e["second"] for e in markers if e["second"] is not None
+        if shootout_start is not None:
+            p5_end = match_end if match_end is not None else max_second
+            periods.append(
+                Period(
+                    id=5,
+                    start_timestamp=timedelta(seconds=shootout_start),
+                    end_timestamp=timedelta(seconds=p5_end),
+                )
             )
-
-            period = Period(
-                id=len(periods) + 1,
-                start_timestamp=timedelta(seconds=start_second),
-                end_timestamp=timedelta(seconds=end_second),
-            )
-            periods.append(period)
 
         return periods
 
@@ -704,18 +830,40 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
 
         events = []
         seen_fingerprints = set()
-        for period_events_title, default_period_id in zip(
-            ["first_half_markers", "second_half_markers"], [1, 2]
+        seen_event_ids = set()
+        # Iterate in preference order. For ET matches SmrtStats stores ET
+        # events in two lists at once: the extra-time bucket
+        # (first_extra_time_markers / second_extra_time_markers) AND
+        # second_half_markers. The two copies share the event id but
+        # disagree on relative_coord_* because each list encodes
+        # coordinates in that period's attacking-direction frame (teams
+        # switch ends between the 2nd half and ET1, and again between
+        # ET1 and ET2). Iterating ET buckets first and deduping by id
+        # ensures each ET event is emitted once, with coordinates in
+        # its own period's frame.
+        for period_events_title in (
+            "first_half_markers",
+            "first_extra_time_markers",
+            "second_extra_time_markers",
+            "second_half_markers",
         ):
-            period_events = raw_data[period_events_title]
+            period_events = raw_data.get(period_events_title, []) or []
             for idx, raw_event in enumerate(period_events):
-                # Deduplicate events with same content but different IDs
+                # Id-based dedup: the same event may appear verbatim in
+                # multiple SmrtStats marker lists.
+                event_id = raw_event.get("id")
+                if event_id is not None and event_id in seen_event_ids:
+                    continue
+                # Fingerprint-based dedup: SmrtStats also sometimes emits
+                # the same content under different ids.
                 fingerprint = _get_event_fingerprint(raw_event)
                 if fingerprint in seen_fingerprints:
                     logger.debug(
                         f"Skipping duplicate event with id {raw_event['id']}"
                     )
                     continue
+                if event_id is not None:
+                    seen_event_ids.add(event_id)
                 seen_fingerprints.add(fingerprint)
                 action_id = raw_event["action_id"]
                 action_title = raw_event["action"]["title"].lower()
@@ -729,10 +877,13 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                         str(raw_event["creator_id"])
                     )
                     event_second = raw_event["second"]
+                    # Iterate periods in reverse so events on a shared
+                    # boundary (e.g. second == HALF_TIME == SECOND_HALF
+                    # start) land in the later period.
                     period = next(
                         (
                             p
-                            for p in periods
+                            for p in reversed(periods)
                             if p.start_timestamp.total_seconds()
                             <= event_second
                             <= p.end_timestamp.total_seconds()

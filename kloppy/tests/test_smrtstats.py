@@ -6,6 +6,9 @@ from typing import cast
 import pytest
 
 from kloppy import smrtstats
+from kloppy.infra.serializers.event.smrtstats.deserializer import (
+    SmrtStatsDeserializer,
+)
 from kloppy.domain import (
     BallState,
     BodyPart,
@@ -537,3 +540,403 @@ class TestSmrtStatsFoulCommittedEvent:
 #                 PositionType.LeftMidfield,
 #             )
 #         ]
+
+
+class TestSmrtStatsCreatePeriods:
+    """Unit tests for SmrtStatsDeserializer.create_periods.
+
+    Kloppy assigns Period 1/2 to regulation halves, Period 3/4 to the two
+    halves of extra time and Period 5 to the penalty shootout.
+    """
+
+    def test_normal_match(self):
+        """first_half_markers -> P1, second_half_markers -> P2, no P5."""
+        raw = {
+            "first_half_markers": [
+                {"action_id": 1, "second": 0.0},
+                {"action_id": 74, "second": 2700.0},
+            ],
+            "second_half_markers": [
+                {"action_id": 75, "second": 2750.0},
+                {"action_id": 89, "second": 5500.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2]
+        assert periods[0].start_timestamp == timedelta(seconds=0)
+        assert periods[0].end_timestamp == timedelta(seconds=2700)
+        assert periods[1].start_timestamp == timedelta(seconds=2750)
+        assert periods[1].end_timestamp == timedelta(seconds=5500)
+
+    def test_shootout_quirk_both_halves_in_first(self):
+        """Both regulation halves in first_half_markers; shootout in second.
+
+        Observed on matches 720080 (Argentinos vs Barcelona SC) and 720083
+        (Tolima vs Táchira) — Copa Libertadores qualifiers that went
+        straight from regulation to penalties.
+        """
+        raw = {
+            "first_half_markers": [
+                {"action_id": 1, "second": 0.0},
+                {"action_id": 2, "second": 100.0},
+                {"action_id": 74, "second": 2996.0},
+                {"action_id": 75, "second": 2996.0},
+                {"action_id": 2, "second": 4000.0},
+            ],
+            "second_half_markers": [
+                {"action_id": 74, "second": 6026.0},
+                {"action_id": 65, "second": 6100.0},  # shootout goal
+                {"action_id": 89, "second": 6686.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2, 5]
+
+        assert periods[0].start_timestamp == timedelta(seconds=0)
+        assert periods[0].end_timestamp == timedelta(seconds=2996)
+
+        assert periods[1].start_timestamp == timedelta(seconds=2996)
+        assert periods[1].end_timestamp == timedelta(seconds=6026)
+
+        assert periods[2].start_timestamp == timedelta(seconds=6026)
+        assert periods[2].end_timestamp == timedelta(seconds=6686)
+
+    def test_extra_time_plus_shootout(self):
+        """Extra time followed by a penalty shootout (5 periods).
+
+        Modeled after match 671052 (Stockport vs Leyton Orient, EFL L1
+        play-off SF 2nd leg). SmrtStats's ET layout puts every 2nd-half,
+        ET and shootout marker into second_half_markers with action_ids
+        1/75/81/85/74/89 driving the boundaries.
+        """
+        raw = {
+            "first_half_markers": [
+                {"action_id": 1, "second": 0.0},
+                {"action_id": 2, "second": 500.0},
+            ],
+            "second_half_markers": [
+                {"action_id": 74, "second": 2957.0},
+                {"action_id": 75, "second": 2957.0},
+                {"action_id": 2, "second": 4000.0},
+                {"action_id": 74, "second": 5959.0},
+                {"action_id": 81, "second": 5959.0},
+                {"action_id": 2, "second": 6500.0},
+                {"action_id": 74, "second": 6865.0},
+                {"action_id": 85, "second": 6865.0},
+                {"action_id": 2, "second": 7500.0},
+                {"action_id": 74, "second": 7832.0},
+                {"action_id": 65, "second": 7900.0},  # shootout goal
+                {"action_id": 89, "second": 8195.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2, 3, 4, 5]
+        assert periods[0].start_timestamp == timedelta(seconds=0)
+        assert periods[0].end_timestamp == timedelta(seconds=2957)
+        assert periods[1].start_timestamp == timedelta(seconds=2957)
+        assert periods[1].end_timestamp == timedelta(seconds=5959)
+        assert periods[2].start_timestamp == timedelta(seconds=5959)
+        assert periods[2].end_timestamp == timedelta(seconds=6865)
+        assert periods[3].start_timestamp == timedelta(seconds=6865)
+        assert periods[3].end_timestamp == timedelta(seconds=7832)
+        assert periods[4].start_timestamp == timedelta(seconds=7832)
+        assert periods[4].end_timestamp == timedelta(seconds=8195)
+
+    def test_extra_time_no_shootout(self):
+        """ET that settles the match produces 4 periods (no P5)."""
+        raw = {
+            "first_half_markers": [
+                {"action_id": 1, "second": 0.0},
+            ],
+            "second_half_markers": [
+                {"action_id": 75, "second": 2900.0},
+                {"action_id": 81, "second": 5800.0},
+                {"action_id": 85, "second": 6700.0},
+                {"action_id": 89, "second": 7600.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2, 3, 4]
+        assert periods[3].start_timestamp == timedelta(seconds=6700)
+        assert periods[3].end_timestamp == timedelta(seconds=7600)
+
+    def test_empty_input(self):
+        assert SmrtStatsDeserializer.create_periods({}) == []
+        assert (
+            SmrtStatsDeserializer.create_periods(
+                {"first_half_markers": [], "second_half_markers": []}
+            )
+            == []
+        )
+
+    def test_extra_time_marker_lists_deduplicated(self):
+        """first_extra_time_markers is a duplicate subset of
+        second_half_markers; pooling both must not produce a sixth period
+        or shift boundaries.
+        """
+        ET1_EVENT = {"id": 1000, "action_id": 2, "second": 6000.0}
+        raw = {
+            "first_half_markers": [
+                {"id": 1, "action_id": 1, "second": 0.0},
+            ],
+            "second_half_markers": [
+                {"id": 10, "action_id": 75, "second": 2900.0},
+                {"id": 20, "action_id": 81, "second": 5900.0},
+                ET1_EVENT,
+                {"id": 30, "action_id": 85, "second": 6800.0},
+                {"id": 40, "action_id": 89, "second": 7700.0},
+            ],
+            "first_extra_time_markers": [ET1_EVENT],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2, 3, 4]
+
+
+class TestSmrtStatsShootoutMatch:
+    """Integration tests against a trimmed real-world shootout fixture
+    (derived from match 720080, Argentinos Juniors vs Barcelona SC)."""
+
+    @pytest.fixture(scope="class")
+    def shootout_dataset(self, base_dir) -> EventDataset:
+        return smrtstats.load(
+            raw_data=base_dir / "files" / "smrtstats_shootout.json",
+            coordinates="smrtstats",
+        )
+
+    @pytest.fixture(scope="class")
+    def shootout_dataset_excluded(self, base_dir) -> EventDataset:
+        return smrtstats.load(
+            raw_data=base_dir / "files" / "smrtstats_shootout.json",
+            coordinates="smrtstats",
+            exclude_penalty_shootouts=True,
+        )
+
+    def test_periods_include_shootout(self, shootout_dataset):
+        """Three periods: two regulation halves + penalty shootout (P5)."""
+        period_ids = [p.id for p in shootout_dataset.metadata.periods]
+        assert period_ids == [1, 2, 5]
+
+    def test_period_boundaries(self, shootout_dataset):
+        """Period timestamps align with the raw SmrtStats markers."""
+        p1, p2, p5 = shootout_dataset.metadata.periods
+        # First half: action_id=1 at 0s, HALF_TIME at 2996s.
+        assert p1.start_timestamp == timedelta(seconds=0)
+        # Second half: starts at the SECOND_HALF marker (2996s), ends at
+        # the last regulation event (5995s in the raw file).
+        assert p2.start_timestamp == timedelta(seconds=2996)
+        # Penalty shootout bounds from second_half_markers.
+        assert p5.start_timestamp == timedelta(seconds=6026)
+        assert p5.end_timestamp == timedelta(seconds=6686)
+
+    def test_events_routed_by_period(self, shootout_dataset):
+        """Every shootout event lands in Period 5; regulation events do not."""
+        shootout_events = [
+            e for e in shootout_dataset.events if e.period.id == 5
+        ]
+        assert len(shootout_events) > 0
+        for event in shootout_events:
+            absolute_second = (
+                event.period.start_timestamp.total_seconds()
+                + event.timestamp.total_seconds()
+            )
+            assert 6026 <= absolute_second <= 6686
+
+    def test_exclude_penalty_shootouts(
+        self, shootout_dataset, shootout_dataset_excluded
+    ):
+        """exclude_penalty_shootouts strips Period 5 and its events."""
+        period_ids = [p.id for p in shootout_dataset_excluded.metadata.periods]
+        assert period_ids == [1, 2]
+        assert all(e.period.id != 5 for e in shootout_dataset_excluded.events)
+        # The excluded dataset should have strictly fewer events.
+        assert len(shootout_dataset_excluded.events) < len(
+            shootout_dataset.events
+        )
+
+    def test_shootout_shots_at_penalty_spots(self, shootout_dataset):
+        """Every P5 shot lands at one of the two penalty-spot
+        x-coordinates (≈ 92.92 or ≈ 12.08 on the 105 m-long pitch)."""
+        shootout_shots = [
+            e
+            for e in shootout_dataset.events
+            if e.event_type == EventType.SHOT and e.period.id == 5
+        ]
+        assert len(shootout_shots) > 0
+        for shot in shootout_shots:
+            assert shot.coordinates.x in (
+                pytest.approx(92.92),
+                pytest.approx(12.08),
+            ), f"shot {shot.event_id} at x={shot.coordinates.x}"
+            assert shot.coordinates.y == pytest.approx(34.0)
+
+
+class TestSmrtStatsExtraTimeMatch:
+    """Integration tests against a trimmed ET + shootout fixture derived
+    from match 671052 (Stockport County vs Leyton Orient, EFL L1 play-off
+    semi-final 2nd leg 2025-05-14 — went to extra time and penalties)."""
+
+    @pytest.fixture(scope="class")
+    def et_dataset(self, base_dir) -> EventDataset:
+        return smrtstats.load(
+            raw_data=base_dir / "files" / "smrtstats_extra_time.json",
+            coordinates="smrtstats",
+        )
+
+    @pytest.fixture(scope="class")
+    def et_dataset_excluded(self, base_dir) -> EventDataset:
+        return smrtstats.load(
+            raw_data=base_dir / "files" / "smrtstats_extra_time.json",
+            coordinates="smrtstats",
+            exclude_penalty_shootouts=True,
+        )
+
+    def test_five_periods(self, et_dataset):
+        """Regulation (P1+P2), extra time (P3+P4) and shootout (P5)."""
+        assert [p.id for p in et_dataset.metadata.periods] == [1, 2, 3, 4, 5]
+
+    def test_period_boundaries(self, et_dataset):
+        """Period boundaries align with the 1/75/81/85/74/89 markers."""
+        p1, p2, p3, p4, p5 = et_dataset.metadata.periods
+        # FIRST_HALF at 0s, HALF_TIME at 2957s.
+        assert p1.start_timestamp == timedelta(seconds=0)
+        assert p1.end_timestamp == timedelta(seconds=2957)
+        # SECOND_HALF at 2957s, ET1 start at 5959s.
+        assert p2.start_timestamp == timedelta(seconds=2957)
+        assert p2.end_timestamp == timedelta(seconds=5959)
+        # ET1 start at 5959s, ET2 start at 6865s.
+        assert p3.start_timestamp == timedelta(seconds=5959)
+        assert p3.end_timestamp == timedelta(seconds=6865)
+        # ET2 start at 6865s, final HALF_TIME at 7832s.
+        assert p4.start_timestamp == timedelta(seconds=6865)
+        assert p4.end_timestamp == timedelta(seconds=7832)
+        # Shootout from 7832s to MATCH_END at 8195s.
+        assert p5.start_timestamp == timedelta(seconds=7832)
+        assert p5.end_timestamp == timedelta(seconds=8195)
+
+    def test_et_halves_have_events(self, et_dataset):
+        """Both extra-time halves must receive events.
+
+        Prior to this change, ET events were routed into Period 2 because
+        no P3/P4 existed.
+        """
+        p3_events = [e for e in et_dataset.events if e.period.id == 3]
+        p4_events = [e for e in et_dataset.events if e.period.id == 4]
+        assert len(p3_events) > 0
+        assert len(p4_events) > 0
+
+    def test_shootout_events_present(self, et_dataset):
+        """SmrtStats does emit events during the shootout (contrary to
+        the downstream DB's 'P5 has no events' claim). Kloppy lands them
+        in P5."""
+        p5_events = [e for e in et_dataset.events if e.period.id == 5]
+        assert len(p5_events) > 0
+
+    def test_exclude_penalty_shootouts(self, et_dataset, et_dataset_excluded):
+        """exclude_penalty_shootouts strips only P5, leaving P1-P4 intact."""
+        period_ids = [p.id for p in et_dataset_excluded.metadata.periods]
+        assert period_ids == [1, 2, 3, 4]
+        assert all(e.period.id != 5 for e in et_dataset_excluded.events)
+        # The only delta should be P5 events.
+        p5_count = sum(1 for e in et_dataset.events if e.period.id == 5)
+        assert (
+            len(et_dataset.events) - len(et_dataset_excluded.events)
+            == p5_count
+        )
+
+    def test_et_events_use_extra_time_frame(self, et_dataset):
+        """ET events must take ``relative_coord_*`` from
+        first_extra_time_markers (resp. second_extra_time_markers), not
+        from second_half_markers.
+
+        Teams switch ends between the 2nd half and ET1 (and again between
+        ET1 and ET2), so each list encodes the same event in a different
+        attacking-direction frame. Pulling coordinates from the
+        period-specific bucket keeps downstream spatial analytics
+        oriented correctly.
+
+        Anchor: event 239138018 is an ET1 pass at second=5959. Its ET1
+        frame encodes relative_coord_x=52.19 while the 2nd-half frame
+        encodes 52.81 (mirrored around x=52.5).
+        """
+        event = et_dataset.get_event_by_id("239138018")
+        assert event is not None
+        assert event.period.id == 3
+        # Kloppy's Point.x matches the raw relative_coord_x straight
+        # through (the SmrtStats coord system uses this directly before
+        # the coordinate_system transform).
+        assert event.raw_event["relative_coord_x"] == pytest.approx(52.19)
+
+    def test_open_play_shots_land_in_attacking_half(self, et_dataset):
+        """Open-play shots must have x on the attacking half (x > 52.5).
+
+        Under ACTION_EXECUTING_TEAM orientation the shooting team always
+        attacks toward x=105, so any shot with x ≤ 52.5 means the event
+        was pulled from the wrong attacking-direction frame — exactly
+        the bug that ET1 events exhibit when read from
+        second_half_markers instead of first_extra_time_markers.
+
+        Penalty-shootout kicks (P5) are excluded here: SmrtStats encodes
+        shootout shots alternately at each team's own attacking-penalty
+        spot (x≈92.92 or x≈12.08), so the ``x > 52.5`` invariant does
+        not apply to that period.
+        """
+        open_play_shots = [
+            e
+            for e in et_dataset.events
+            if e.event_type == EventType.SHOT and e.period.id != 5
+        ]
+        assert len(open_play_shots) > 0
+        for shot in open_play_shots:
+            assert shot.coordinates.x > 52.5, (
+                f"shot {shot.event_id} in P{shot.period.id} has x="
+                f"{shot.coordinates.x} (≤ midfield) — suggests a "
+                f"coordinate-frame mismatch"
+            )
+
+    def test_et1_shots_use_fet_frame(self, et_dataset):
+        """Regression anchor: three specific ET1 shots have very
+        different coordinates in the two frames. The sh copy places
+        them on the defending half; the fet copy places them correctly
+        on the attacking side.
+        """
+        # (event_id, expected x when reading the fet frame, x when
+        # the sh-frame copy would have been used).
+        cases = [
+            ("239138062", 84.53, 20.47),  # SHOT_ON_TARGET
+            ("239138089", 90.09, 14.91),  # SHOT_WIDE
+            ("239138196", 95.55, 9.45),  # BLOCKED_SHOT
+        ]
+        for event_id, expected_fet_x, sh_frame_x in cases:
+            event = et_dataset.get_event_by_id(event_id)
+            assert event is not None, f"event {event_id} missing"
+            assert event.period.id == 3
+            assert event.coordinates.x == pytest.approx(expected_fet_x), (
+                f"ET1 shot {event_id} has x={event.coordinates.x} "
+                f"(expected {expected_fet_x} from ET1 frame; "
+                f"{sh_frame_x} would indicate a 2nd-half-frame leak)"
+            )
+
+    def test_shootout_shots_at_penalty_spots(self, et_dataset):
+        """Every shootout (P5) shot lands on a penalty spot.
+
+        SmrtStats encodes each kick from the kicking team's own
+        attacking-direction perspective, so kicks alternate between two
+        penalty-spot x-coordinates (x ≈ 92.92 and x ≈ 12.08, which are
+        ~11 m from each goal line on a 105 m pitch). Every shootout shot
+        sits on the pitch-width centerline (y = 34).
+        """
+        shootout_shots = [
+            e
+            for e in et_dataset.events
+            if e.event_type == EventType.SHOT and e.period.id == 5
+        ]
+        assert len(shootout_shots) > 0
+        for shot in shootout_shots:
+            assert shot.coordinates.x in (
+                pytest.approx(92.92),
+                pytest.approx(12.08),
+            ), (
+                f"shootout shot {shot.event_id} has unexpected "
+                f"x={shot.coordinates.x}"
+            )
+            assert shot.coordinates.y == pytest.approx(34.0)
