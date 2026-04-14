@@ -448,6 +448,26 @@ class BodyPartQualifier(EnumQualifier):
     value: BodyPart
 
 
+class TechniqueType(Enum):
+    """
+    TechniqueType
+
+    Attributes:
+        INSWINGER (TechniqueType): In-swinging delivery
+        OUTSWINGER (TechniqueType): Out-swinging delivery
+        STRAIGHT (TechniqueType): Straight delivery
+    """
+
+    INSWINGER = "INSWINGER"
+    OUTSWINGER = "OUTSWINGER"
+    STRAIGHT = "STRAIGHT"
+
+
+@dataclass
+class TechniqueQualifier(EnumQualifier):
+    value: TechniqueType
+
+
 class GoalkeeperAction(Enum):
     """
     Deprecated: GoalkeeperAction has been renamed to GoalkeeperActionType.
@@ -1498,6 +1518,8 @@ __all__ = [
     "PassType",
     "BodyPart",
     "BodyPartQualifier",
+    "TechniqueType",
+    "TechniqueQualifier",
     "GoalkeeperEvent",
     "GoalkeeperQualifier",
     "GoalkeeperAction",
