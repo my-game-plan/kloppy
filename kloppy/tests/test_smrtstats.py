@@ -542,6 +542,42 @@ class TestSmrtStatsFoulCommittedEvent:
 #         ]
 
 
+class TestSmrtStatsThrowInCoordinates:
+    """Smrtstats encodes ``relative_coord_x`` for ~25% of throw-ins on
+    the opposite sideline from the destination; the parser mirrors
+    start_x (``105 - x``) to put the thrower back on the receiver's
+    sideline."""
+
+    def test_known_mirrored_throwin_is_corrected(self, dataset: EventDataset):
+        """Anchor: event 239947349 has raw start_x=35.8 and end_x=54.18
+        (opposite sides of midfield). The parser must mirror start_x to
+        ``105 - 35.8 = 69.2``."""
+        throw_in = dataset.get_event_by_id("239947349")
+        assert throw_in is not None
+        assert SetPieceType.THROW_IN in throw_in.get_qualifier_values(
+            SetPieceQualifier
+        )
+        assert throw_in.coordinates.x == pytest.approx(69.2)
+
+    def test_no_throwins_with_mirrored_start(self, dataset: EventDataset):
+        throw_ins = [
+            e
+            for e in dataset.events
+            if e.event_type == EventType.PASS
+            and SetPieceType.THROW_IN
+            in e.get_qualifier_values(SetPieceQualifier)
+        ]
+        for tin in throw_ins:
+            if tin.receiver_coordinates is None:
+                continue
+            start_side = tin.coordinates.x > 52.5
+            end_side = tin.receiver_coordinates.x > 52.5
+            assert start_side == end_side, (
+                f"throw-in {tin.event_id} has start x={tin.coordinates.x} "
+                f"and end x={tin.receiver_coordinates.x} on opposite sides"
+            )
+
+
 class TestSmrtStatsCreatePeriods:
     """Unit tests for SmrtStatsDeserializer.create_periods.
 

@@ -297,6 +297,37 @@ class SmrtStatsInputs(NamedTuple):
     pitch_width: Optional[float] = None
 
 
+THROW_IN_SET_PIECE_ID = 2
+# Raw relative_coord_* values are in meters on smrtstats's 105x68 pitch.
+SMRTSTATS_PITCH_LENGTH = 105
+SMRTSTATS_PITCH_MIDFIELD = SMRTSTATS_PITCH_LENGTH / 2
+
+
+def _correct_throwin_start_x(raw_event: Dict) -> bool:
+    """Mirror the throw-in start x when smrtstats delivers it on the
+    opposite sideline from the destination.
+
+    Smrtstats occasionally encodes ``relative_coord_x`` (start) in a
+    different attacking-direction frame than
+    ``relative_coord_x_destination`` (end), producing throw-ins whose
+    start and end sit on opposite sidelines. Affects ~25% of throw-ins
+    across multiple competitions. Mutates ``raw_event`` in place and
+    returns whether a correction was applied.
+    """
+    if raw_event.get("set_piece_id") != THROW_IN_SET_PIECE_ID:
+        return False
+    start_x = raw_event.get("relative_coord_x")
+    end_x = raw_event.get("relative_coord_x_destination")
+    if start_x is None or end_x is None:
+        return False
+    if (start_x > SMRTSTATS_PITCH_MIDFIELD) == (
+        end_x > SMRTSTATS_PITCH_MIDFIELD
+    ):
+        return False
+    raw_event["relative_coord_x"] = SMRTSTATS_PITCH_LENGTH - start_x
+    return True
+
+
 def _get_event_set_piece_qualifier(
     set_piece_id: Optional[int],
 ) -> List[SetPieceQualifier]:
@@ -910,6 +941,12 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                         or raw_event["coord_y"] is None
                     ):
                         pass
+
+                    if _correct_throwin_start_x(raw_event):
+                        logger.debug(
+                            f"Corrected mirrored throw-in start_x for "
+                            f"event {raw_event.get('id')}"
+                        )
 
                     x = (
                         raw_event["relative_coord_x"]
