@@ -8,7 +8,6 @@ import pytest
 from kloppy import smrtstats
 from kloppy.infra.serializers.event.smrtstats.deserializer import (
     SmrtStatsDeserializer,
-    _correct_throwin_start_x,
 )
 from kloppy.domain import (
     BallState,
@@ -543,83 +542,22 @@ class TestSmrtStatsFoulCommittedEvent:
 #         ]
 
 
-class TestCorrectThrowinStartX:
-    """Smrtstats occasionally delivers throw-in start x on the opposite
-    sideline from the destination (~25% of throw-ins). The parser mirrors
-    start_x when this happens. Raw smrtstats coords are in meters on a
-    105x68 pitch, so midfield is x=52.5 and mirroring is ``105 - x``."""
-
-    def test_mirrors_when_start_and_end_on_opposite_sides(self):
-        raw = {
-            "set_piece_id": 2,
-            "relative_coord_x": 105,
-            "relative_coord_x_destination": 5,
-        }
-        assert _correct_throwin_start_x(raw) is True
-        assert raw["relative_coord_x"] == 0
-
-    def test_mirrors_when_start_lt_midfield_and_end_gt_midfield(self):
-        raw = {
-            "set_piece_id": 2,
-            "relative_coord_x": 2,
-            "relative_coord_x_destination": 96,
-        }
-        assert _correct_throwin_start_x(raw) is True
-        assert raw["relative_coord_x"] == 103
-
-    def test_leaves_good_throwin_unchanged(self):
-        raw = {
-            "set_piece_id": 2,
-            "relative_coord_x": 0,
-            "relative_coord_x_destination": 8,
-        }
-        assert _correct_throwin_start_x(raw) is False
-        assert raw["relative_coord_x"] == 0
-
-    def test_ignores_non_throwin_events(self):
-        raw = {
-            "set_piece_id": 5,  # corner kick
-            "relative_coord_x": 105,
-            "relative_coord_x_destination": 5,
-        }
-        assert _correct_throwin_start_x(raw) is False
-        assert raw["relative_coord_x"] == 105
-
-    def test_ignores_open_play(self):
-        raw = {
-            "set_piece_id": 1,
-            "relative_coord_x": 90,
-            "relative_coord_x_destination": 10,
-        }
-        assert _correct_throwin_start_x(raw) is False
-        assert raw["relative_coord_x"] == 90
-
-    def test_handles_missing_coordinates(self):
-        assert (
-            _correct_throwin_start_x(
-                {
-                    "set_piece_id": 2,
-                    "relative_coord_x": None,
-                    "relative_coord_x_destination": 5,
-                }
-            )
-            is False
-        )
-        assert (
-            _correct_throwin_start_x(
-                {
-                    "set_piece_id": 2,
-                    "relative_coord_x": 105,
-                    "relative_coord_x_destination": None,
-                }
-            )
-            is False
-        )
-
-
 class TestSmrtStatsThrowInCoordinates:
-    """Integration check: no throw-in in the parsed dataset should have
-    start and end x-coordinates on opposite sides of midfield."""
+    """Smrtstats encodes ``relative_coord_x`` for ~25% of throw-ins on
+    the opposite sideline from the destination; the parser mirrors
+    start_x (``105 - x``) to put the thrower back on the receiver's
+    sideline."""
+
+    def test_known_mirrored_throwin_is_corrected(self, dataset: EventDataset):
+        """Anchor: event 239947349 has raw start_x=35.8 and end_x=54.18
+        (opposite sides of midfield). The parser must mirror start_x to
+        ``105 - 35.8 = 69.2``."""
+        throw_in = dataset.get_event_by_id("239947349")
+        assert throw_in is not None
+        assert SetPieceType.THROW_IN in throw_in.get_qualifier_values(
+            SetPieceQualifier
+        )
+        assert throw_in.coordinates.x == pytest.approx(69.2)
 
     def test_no_throwins_with_mirrored_start(self, dataset: EventDataset):
         throw_ins = [
