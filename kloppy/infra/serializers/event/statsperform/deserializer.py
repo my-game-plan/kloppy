@@ -40,6 +40,8 @@ from kloppy.domain import (
     ShotResult,
     TakeOnResult,
     Team,
+    TechniqueQualifier,
+    TechniqueType,
 )
 from kloppy.exceptions import DeserializationError
 from kloppy.infra.serializers.event.deserializer import EventDataDeserializer
@@ -148,6 +150,10 @@ EVENT_QUALIFIER_ASSIST_2ND = 218
 EVENT_QUALIFIER_FIRST_YELLOW_CARD = 31
 EVENT_QUALIFIER_SECOND_YELLOW_CARD = 32
 EVENT_QUALIFIER_RED_CARD = 33
+
+EVENT_QUALIFIER_INSWINGER = 223
+EVENT_QUALIFIER_OUTSWINGER = 224
+EVENT_QUALIFIER_STRAIGHT = 225
 
 EVENT_QUALIFIER_COUNTER_ATTACK = 23
 
@@ -639,6 +645,7 @@ def _get_event_qualifiers(raw_qualifiers: Dict[int, str]) -> List[Qualifier]:
     qualifiers = []
     qualifiers.extend(_get_event_setpiece_qualifiers(raw_qualifiers))
     qualifiers.extend(_get_event_bodypart_qualifiers(raw_qualifiers))
+    qualifiers.extend(_get_event_technique_qualifiers(raw_qualifiers))
     qualifiers.extend(_get_event_card_qualifiers(raw_qualifiers))
     qualifiers.extend(_get_event_counter_attack_qualifiers(raw_qualifiers))
     return qualifiers
@@ -713,6 +720,19 @@ def _get_event_bodypart_qualifiers(
         qualifiers.append(BodyPartQualifier(value=BodyPart.RIGHT_FOOT))
     elif EVENT_QUALIFIER_OTHER_BODYPART in raw_qualifiers:
         qualifiers.append(BodyPartQualifier(value=BodyPart.OTHER))
+    return qualifiers
+
+
+def _get_event_technique_qualifiers(
+    raw_qualifiers: Dict[int, str],
+) -> List[Qualifier]:
+    qualifiers = []
+    if EVENT_QUALIFIER_INSWINGER in raw_qualifiers:
+        qualifiers.append(TechniqueQualifier(value=TechniqueType.INSWINGER))
+    elif EVENT_QUALIFIER_OUTSWINGER in raw_qualifiers:
+        qualifiers.append(TechniqueQualifier(value=TechniqueType.OUTSWINGER))
+    elif EVENT_QUALIFIER_STRAIGHT in raw_qualifiers:
+        qualifiers.append(TechniqueQualifier(value=TechniqueType.STRAIGHT))
     return qualifiers
 
 

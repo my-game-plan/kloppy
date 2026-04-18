@@ -31,6 +31,8 @@ from kloppy.domain import (
     SetPieceType,
     ShotResult,
     TakeOnResult,
+    TechniqueQualifier,
+    TechniqueType,
 )
 from kloppy.domain.models.event import UnderPressureQualifier
 from kloppy.exceptions import DeserializationError
@@ -1444,6 +1446,15 @@ def _get_pass_qualifiers(pass_dict: Dict) -> List[PassQualifier]:
         technique_id = PASS.TECHNIQUE(pass_dict["technique"])
         if technique_id == PASS.TECHNIQUE.THROUGH_BALL:
             add_qualifier(PassType.THROUGH_BALL)
+        technique_mapping = {
+            PASS.TECHNIQUE.INSWINGING: TechniqueType.INSWINGER,
+            PASS.TECHNIQUE.OUTSWINGING: TechniqueType.OUTSWINGER,
+            PASS.TECHNIQUE.STRAIGHT: TechniqueType.STRAIGHT,
+        }
+        if technique_id in technique_mapping:
+            qualifiers.append(
+                TechniqueQualifier(value=technique_mapping[technique_id])
+            )
     if "switch" in pass_dict:
         add_qualifier(PassType.SWITCH_OF_PLAY)
     if "height" in pass_dict:
