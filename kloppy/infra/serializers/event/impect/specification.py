@@ -308,6 +308,11 @@ class SHOT(EVENT):
         teams: List[Team],
         **generic_event_kwargs,
     ) -> List[Event]:
+        if self.raw_event["result"] is None:
+            # Impect occasionally ships finalized feeds with an unfinished
+            # shot tag (null result). Drop it rather than failing the match.
+            return []
+
         shot_dict = self.raw_event["shot"]
         result = self.RESULT(self.raw_event["result"])
 
@@ -609,6 +614,9 @@ class FREE_KICK(EVENT):
             )
             return [pass_event]
         elif self.raw_event["shot"]:
+            if self.raw_event["result"] is None:
+                # See SHOT._create_events: drop unfinished shot tags.
+                return []
             shot_dict = self.raw_event["shot"]
             result = self.RESULT(self.raw_event["result"])
             shot_end_coordinates, shot_result = parse_shot_end_coordinates(

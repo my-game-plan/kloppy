@@ -443,6 +443,33 @@ class TestImpectShotEvent:
         # An open play shot should not have a set piece qualifier
         assert shot.get_qualifier_value(SetPieceQualifier) is None
 
+    def test_null_result_shot_dropped(self, base_dir, tmp_path):
+        """Impect occasionally ships finalized feeds with a single unfinished
+        shot tag (result: null, end: null). The deserializer should drop the
+        malformed shot rather than failing the whole match."""
+        import json
+
+        with open(base_dir / "files" / "impect_events.json") as f:
+            events = json.load(f)
+
+        target = next(e for e in events if e["actionType"] == "SHOT")
+        target_id = target["id"]
+        target["result"] = None
+        target["end"] = None
+        target["shot"]["targetPoint"] = None
+
+        events_path = tmp_path / "events.json"
+        events_path.write_text(json.dumps(events))
+
+        dataset = impect.load(
+            event_data=events_path,
+            lineup_data=base_dir / "files" / "impect_lineups.json",
+            coordinates="impect",
+        )
+
+        assert dataset.get_event_by_id(str(target_id)) is None
+        assert len(dataset.find_all("shot")) == 21  # was 22
+
 
 class TestImpectClearanceEvent:
     """Tests related to deserializing 9/Clearance events"""
