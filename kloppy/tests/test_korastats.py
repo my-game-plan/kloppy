@@ -301,6 +301,42 @@ class TestKoraStatsShotEvent:
         )
 
 
+class TestKoraStatsOwnGoalEvent:
+    """Tests related to deserializing own goal events.
+
+    KoraStats emits own goals as a pair:
+    - ATTACK_OWN_GOAL_IN_OPPONENT (5, 30) on the benefiting team's side
+      (no player_id)
+    - GOALKEEPER_OWN_GOAL_CONCEDED (2, 49) on the conceding team's side,
+      attached to the goalkeeper.
+
+    Only the conceding-side event should produce a SHOT with
+    ShotResult.OWN_GOAL.
+    """
+
+    def test_own_goal_count(self, dataset: EventDataset):
+        """Exactly one own-goal shot event per own goal should be emitted."""
+        shots = dataset.find_all("shot")
+        own_goals = [s for s in shots if s.result == ShotResult.OWN_GOAL]
+        assert len(own_goals) == 1
+
+    def test_own_goal_attribution(self, dataset: EventDataset):
+        """Own-goal shot should be attributed to the conceding team."""
+        # _id 144883828 is the GOALKEEPER_OWN_GOAL_CONCEDED event
+        # conceded by Kalmar FF (team_id 10107).
+        shot = dataset.get_event_by_id("144883828")
+        assert shot is not None
+        assert shot.event_type == EventType.SHOT
+        assert shot.result == ShotResult.OWN_GOAL
+        assert shot.team.team_id == "10107"
+
+    def test_benefiting_side_dropped(self, dataset: EventDataset):
+        """The benefiting-side event should not produce a separate shot."""
+        # _id 144883827 is the ATTACK_OWN_GOAL_IN_OPPONENT event
+        # which should be silently dropped.
+        assert dataset.get_event_by_id("144883827") is None
+
+
 class TestKoraStatsClearanceEvent:
     """Tests related to deserializing 9/Clearance events"""
 
