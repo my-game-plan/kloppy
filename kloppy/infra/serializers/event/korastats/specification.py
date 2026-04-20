@@ -483,6 +483,38 @@ class SHOT(EVENT):
         return [shot_event]
 
 
+class OWN_GOAL(EVENT):
+    """KoraStats Own Goal event.
+
+    KoraStats emits own goals as a pair of events:
+    - ATTACK_OWN_GOAL_IN_OPPONENT (5, 30) on the benefiting team's side
+      (no player_id).
+    - GOALKEEPER_OWN_GOAL_CONCEDED (2, 49) on the conceding team's side,
+      attached to the goalkeeper.
+
+    Following the StatsBomb convention, we emit a single SHOT event with
+    ShotResult.OWN_GOAL attributed to the conceding team from the
+    goalkeeper event, and drop the benefiting-side event.
+    """
+
+    def _create_events(
+        self,
+        event_factory: EventFactory,
+        teams: List[Team],
+        prior_event: Optional[Dict],
+        next_event: Optional[Dict],
+        **generic_event_kwargs,
+    ) -> List[Event]:
+        shot_event = event_factory.build_shot(
+            result=ShotResult.OWN_GOAL,
+            qualifiers=[],
+            result_coordinates=None,
+            **generic_event_kwargs,
+        )
+
+        return [shot_event]
+
+
 class TACKLE(EVENT):
     """KoraStats Tackle event."""
 
@@ -887,10 +919,10 @@ def event_decoder(raw_event: Dict) -> Optional[EVENT]:
         EVENT_CATEGORY_TYPE.GOALKEEPER_ONE_ON_ONE: GOALKEEPER,
         EVENT_CATEGORY_TYPE.GOALKEEPER_SHOOT: GOALKEEPER,
         # EVENT_CATEGORY_TYPE.GOALKEEPER_PENALTY_SHOOT_OUT: None,
-        EVENT_CATEGORY_TYPE.GOALKEEPER_OWN_GOAL_CONCEDED: None,
+        EVENT_CATEGORY_TYPE.GOALKEEPER_OWN_GOAL_CONCEDED: OWN_GOAL,
         # Defensive events
         EVENT_CATEGORY_TYPE.DEFENSIVE_BLOCK: BLOCK,
-        # (EVENT_CATEGORY.DEFENSIVE, EVENT_TYPE.OWN_GOAL): None,
+        EVENT_CATEGORY_TYPE.DEFENSIVE_OWN_GOAL: None,
         EVENT_CATEGORY_TYPE.DEFENSIVE_TACKLE_CLEAR: TACKLE,
         EVENT_CATEGORY_TYPE.DEFENSIVE_INTERCEPT_CLEAR: INTERCEPTION,
         EVENT_CATEGORY_TYPE.DEFENSIVE_CLEAR: CLEAR,
@@ -928,7 +960,7 @@ def event_decoder(raw_event: Dict) -> Optional[EVENT]:
         EVENT_CATEGORY_TYPE.ATTACK_PENALTY: SHOT,
         EVENT_CATEGORY_TYPE.ATTACK_CORNER: SHOT,
         EVENT_CATEGORY_TYPE.ATTACK_FREEKICK: SHOT,
-        EVENT_CATEGORY_TYPE.ATTACK_OWN_GOAL_IN_OPPONENT: SHOT,
+        EVENT_CATEGORY_TYPE.ATTACK_OWN_GOAL_IN_OPPONENT: None,
         EVENT_CATEGORY_TYPE.ATTACK_SHOOT_LOCATION: None,
         # ATTACK_PENALTY_SHOOTOUT = "PenaltyShootOut"
         # Ball actions

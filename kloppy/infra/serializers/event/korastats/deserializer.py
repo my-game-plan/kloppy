@@ -232,10 +232,17 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
                     is_pass_event = (
                         potential_assist_event.event_type == EventType.PASS
                     )
-                    is_same_team_event = (
-                        event.team == potential_assist_event.team
-                    )
-                    if is_pass_event and is_same_team_event:
+                    # For own goals the shot is attributed to the conceding
+                    # team, but the assisting pass comes from the opponent.
+                    if event.result == ShotResult.OWN_GOAL:
+                        is_assisting_team_event = (
+                            event.team != potential_assist_event.team
+                        )
+                    else:
+                        is_assisting_team_event = (
+                            event.team == potential_assist_event.team
+                        )
+                    if is_pass_event and is_assisting_team_event:
                         potential_assist_event.qualifiers.append(
                             PassQualifier(value=PassType.SHOT_ASSIST)
                         )
