@@ -251,3 +251,109 @@ class TestGoalQualifierAttachment:
             assert count == 1, (
                 f"GOAL shot {shot.event_id} has {count} GoalQualifiers, expected 1"
             )
+
+
+class TestSyntheticOwnGoalForGenerator:
+    """Tests for SyntheticOwnGoalForGenerator."""
+
+    def _load_dataset_statsbomb(self, base_dir, base_filename="statsbomb"):
+        from kloppy import statsbomb
+        return statsbomb.load(
+            event_data=base_dir / f"files/{base_filename}_event.json",
+            lineup_data=base_dir / f"files/{base_filename}_lineup.json",
+        )
+
+    def test_no_own_goals_produces_no_synthetic_events(self, base_dir):
+        """Filter out shots; the generator should produce no OwnGoalForEvents."""
+        from kloppy.domain import EventType, OwnGoalForEvent
+        from kloppy import statsbomb
+
+        # Load only non-shot events to guarantee no OWN_GOAL shots.
+        dataset = statsbomb.load(
+            event_data=base_dir / "files/statsbomb_event.json",
+            lineup_data=base_dir / "files/statsbomb_lineup.json",
+            event_types=[
+                e.value for e in EventType if e.value != "SHOT"
+            ],
+        )
+        before = len([e for e in dataset.events if isinstance(e, OwnGoalForEvent)])
+        dataset = dataset.add_synthetic_event(EventType.OWN_GOAL_FOR)
+        after = len([e for e in dataset.events if isinstance(e, OwnGoalForEvent)])
+        assert before == 0
+        assert after == 0
+
+    def test_one_own_goal_produces_one_synthetic_event(self, base_dir):
+        from kloppy.domain import (
+            EventType,
+            GoalQualifier,
+            OwnGoalForEvent,
+            ShotEvent,
+            ShotResult,
+        )
+
+        dataset = self._load_dataset_statsbomb(base_dir)
+        own_goal_shots = [
+            e
+            for e in dataset.events
+            if isinstance(e, ShotEvent) and e.result == ShotResult.OWN_GOAL
+        ]
+        assert len(own_goal_shots) >= 1
+
+        dataset = dataset.add_synthetic_event(EventType.OWN_GOAL_FOR)
+
+        synthetic_events = [
+            e for e in dataset.events if isinstance(e, OwnGoalForEvent)
+        ]
+        assert len(synthetic_events) == len(own_goal_shots)
+
+        # Pick the first own goal and verify the corresponding synthetic event.
+        source = own_goal_shots[0]
+        synthetic = next(
+            e for e in synthetic_events
+            if e.event_id == f"own_goal_for-{source.event_id}"
+        )
+
+        # Positioned immediately after the source.
+        events_list = list(dataset.events)
+        source_idx = events_list.index(source)
+        assert events_list[source_idx + 1] is synthetic
+
+        # Beneficiary team (opponent of source).
+        teams = dataset.metadata.teams
+        opponent = next(t for t in teams if t != source.team)
+        assert synthetic.team == opponent
+
+        # Player is None.
+        assert synthetic.player is None
+
+        # Coordinates copied from source.
+        assert synthetic.coordinates == source.coordinates
+
+        # GoalQualifier is present.
+        assert synthetic.qualifiers is not None
+        assert any(
+            isinstance(q, GoalQualifier) for q in synthetic.qualifiers
+        )
+
+        # Linked to source via related_event_ids.
+        assert synthetic.related_event_ids == [source.event_id]
+
+    def test_generator_is_idempotent(self, base_dir):
+        from kloppy.domain import EventType, OwnGoalForEvent
+
+        dataset = self._load_dataset_statsbomb(base_dir)
+        dataset = dataset.add_synthetic_event(EventType.OWN_GOAL_FOR)
+        first_run_ids = sorted(
+            e.event_id for e in dataset.events
+            if isinstance(e, OwnGoalForEvent)
+        )
+
+        # Second run on the same dataset.
+        dataset = dataset.add_synthetic_event(EventType.OWN_GOAL_FOR)
+        second_run_ids = sorted(
+            e.event_id for e in dataset.events
+            if isinstance(e, OwnGoalForEvent)
+        )
+
+        assert first_run_ids == second_run_ids
+        assert len(first_run_ids) >= 1, "fixture must have at least one own goal"

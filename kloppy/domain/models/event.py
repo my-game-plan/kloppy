@@ -1499,6 +1499,8 @@ class EventDataset(Dataset[Event]):
         Args:
             event_type_ (EventType): The type of event to generate. The supported event types are currently:
                 - `EventType.CARRY`: Generates carry events.
+                - `EventType.BALL_RECEIPT`: Generates ball receipt events.
+                - `EventType.OWN_GOAL_FOR`: Generates own-goal-for events on the beneficiary team.
             event_factory_ (Optional[EventFactory]): An optional event factory to create the events. If not provided,
                 a default event factory will be used.
             **kwargs: Additional configuration parameters passed to the specific synthetic event generator class.
@@ -1525,6 +1527,14 @@ class EventDataset(Dataset[Event]):
             )
 
             synthetic_event_generator = SyntheticBallReceiptGenerator(
+                event_factory_, **kwargs
+            )
+        elif event_type_ == EventType.OWN_GOAL_FOR:
+            from kloppy.domain.services.synthetic_event_generators.own_goal_for import (
+                SyntheticOwnGoalForGenerator,
+            )
+
+            synthetic_event_generator = SyntheticOwnGoalForGenerator(
                 event_factory_, **kwargs
             )
         else:
