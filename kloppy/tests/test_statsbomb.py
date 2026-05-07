@@ -43,10 +43,12 @@ from kloppy.domain.models.event import (
     CardType,
     CounterAttackQualifier,
     EventType,
+    GoalQualifier,
     GoalkeeperActionType,
     GoalkeeperQualifier,
     InterceptionQualifier,
     InterceptionType,
+    OwnGoalForEvent,
     PassQualifier,
     PassType,
     UnderPressureQualifier,
@@ -848,6 +850,32 @@ class TestStatsBombOwnGoalEvent:
         assert own_goal_against_event is not None
         assert own_goal_against_event.event_type == EventType.SHOT
         assert own_goal_against_event.result == ShotResult.OWN_GOAL
+
+    def test_own_goal_for_generator(self, base_dir: Path):
+        """After running OWN_GOAL_FOR generator, the beneficiary team gets a synthetic event with GoalQualifier."""
+        dataset = statsbomb.load(
+            lineup_data=base_dir / "files" / "statsbomb_lineup.json",
+            event_data=base_dir / "files" / "statsbomb_event.json",
+        )
+
+        source_shot = dataset.get_event_by_id(
+            "89dd4f4b-0a70-48d8-a0e7-ac4c"
+        )
+        assert source_shot is not None
+        assert source_shot.result == ShotResult.OWN_GOAL
+
+        dataset = dataset.add_synthetic_event(EventType.OWN_GOAL_FOR)
+
+        synthetic = dataset.get_event_by_id(
+            "own_goal_for-89dd4f4b-0a70-48d8-a0e7-ac4c"
+        )
+        assert isinstance(synthetic, OwnGoalForEvent)
+        assert synthetic.team != source_shot.team  # beneficiary
+        assert synthetic.player is None
+        assert synthetic.coordinates == source_shot.coordinates
+        assert any(
+            isinstance(q, GoalQualifier) for q in (synthetic.qualifiers or [])
+        )
 
 
 class TestStatsBombClearanceEvent:
