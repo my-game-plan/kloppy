@@ -1214,6 +1214,21 @@ class EventDataset(Dataset[Event]):
 
     dataset_type: DatasetType = DatasetType.EVENT
 
+    def __post_init__(self):
+        super().__post_init__()
+        self._attach_goal_qualifiers()
+
+    def _attach_goal_qualifiers(self):
+        for event in self.events:
+            if not isinstance(event, ShotEvent):
+                continue
+            if event.result != ShotResult.GOAL:
+                continue
+            if event.qualifiers is None:
+                event.qualifiers = []
+            if not any(isinstance(q, GoalQualifier) for q in event.qualifiers):
+                event.qualifiers.append(GoalQualifier(value=True))
+
     def _update_formations_and_positions(self):
         """Update team formations and player positions based on Substitution and TacticalShift events."""
         max_leeway = timedelta(seconds=60)

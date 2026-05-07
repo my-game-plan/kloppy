@@ -183,3 +183,71 @@ class TestOwnGoalForDomain:
         assert isinstance(event, OwnGoalForEvent)
         assert event.event_id == "ogf-1"
         assert event.player is None
+
+
+class TestGoalQualifierAttachment:
+    """Tests for automatic GoalQualifier attachment at EventDataset construction."""
+
+    def _load_dataset_statsbomb(self, base_dir, base_filename="statsbomb"):
+        from kloppy import statsbomb
+        return statsbomb.load(
+            event_data=base_dir / f"files/{base_filename}_event.json",
+            lineup_data=base_dir / f"files/{base_filename}_lineup.json",
+        )
+
+    def test_goal_qualifier_attached_to_goal_shots(self, base_dir):
+        from kloppy.domain import GoalQualifier, ShotEvent, ShotResult
+
+        dataset = self._load_dataset_statsbomb(base_dir)
+        goal_shots = [
+            e
+            for e in dataset.events
+            if isinstance(e, ShotEvent) and e.result == ShotResult.GOAL
+        ]
+        assert len(goal_shots) > 0, (
+            "fixture must contain at least one GOAL shot for this test"
+        )
+        for shot in goal_shots:
+            assert shot.qualifiers is not None
+            assert any(
+                isinstance(q, GoalQualifier) for q in shot.qualifiers
+            ), f"GOAL shot {shot.event_id} missing GoalQualifier"
+
+    def test_goal_qualifier_not_attached_to_own_goal_shots(self, base_dir):
+        from kloppy.domain import GoalQualifier, ShotEvent, ShotResult
+
+        dataset = self._load_dataset_statsbomb(base_dir)
+        own_goal_shots = [
+            e
+            for e in dataset.events
+            if isinstance(e, ShotEvent) and e.result == ShotResult.OWN_GOAL
+        ]
+        assert len(own_goal_shots) > 0, (
+            "fixture must contain at least one OWN_GOAL shot for this test"
+        )
+        for shot in own_goal_shots:
+            qualifiers = shot.qualifiers or []
+            assert not any(
+                isinstance(q, GoalQualifier) for q in qualifiers
+            ), f"OWN_GOAL shot {shot.event_id} should NOT have GoalQualifier"
+
+    def test_goal_qualifier_idempotent(self, base_dir):
+        """Running __post_init__ logic twice should not duplicate qualifiers."""
+        from kloppy.domain import GoalQualifier, ShotEvent, ShotResult
+
+        dataset = self._load_dataset_statsbomb(base_dir)
+        # Force a second pass of the attachment logic.
+        dataset._attach_goal_qualifiers()
+
+        goal_shots = [
+            e
+            for e in dataset.events
+            if isinstance(e, ShotEvent) and e.result == ShotResult.GOAL
+        ]
+        for shot in goal_shots:
+            count = sum(
+                1 for q in (shot.qualifiers or []) if isinstance(q, GoalQualifier)
+            )
+            assert count == 1, (
+                f"GOAL shot {shot.event_id} has {count} GoalQualifiers, expected 1"
+            )
