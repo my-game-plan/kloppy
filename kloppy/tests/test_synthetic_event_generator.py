@@ -273,7 +273,7 @@ class TestSyntheticOwnGoalForGenerator:
             event_data=base_dir / "files/statsbomb_event.json",
             lineup_data=base_dir / "files/statsbomb_lineup.json",
             event_types=[
-                e.value for e in EventType if e.value != "SHOT"
+                e.value for e in EventType if e != EventType.SHOT
             ],
         )
         before = len([e for e in dataset.events if isinstance(e, OwnGoalForEvent)])
