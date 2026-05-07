@@ -137,3 +137,27 @@ class TestSyntheticEventGenerator:
                 EventType.BALL_RECEIPT,
             )
         all_receivals = dataset.find_all("ball_receipt")
+
+
+class TestOwnGoalForDomain:
+    """Domain-level tests for the new GoalQualifier and OwnGoalForEvent."""
+
+    def test_goal_qualifier_is_bool_qualifier(self):
+        from kloppy.domain import GoalQualifier
+        from kloppy.domain.models.event import BoolQualifier
+
+        q = GoalQualifier(value=True)
+        assert isinstance(q, BoolQualifier)
+        assert q.name == "goal"
+        assert q.to_dict() == {"is_goal": True}
+
+    def test_own_goal_for_event_type_exists(self):
+        from kloppy.domain import EventType
+
+        assert EventType.OWN_GOAL_FOR.value == "OWN_GOAL_FOR"
+
+    def test_own_goal_for_event_class_attributes(self):
+        from kloppy.domain import OwnGoalForEvent, EventType
+
+        assert OwnGoalForEvent.event_type == EventType.OWN_GOAL_FOR
+        assert OwnGoalForEvent.event_name == "own_goal_for"

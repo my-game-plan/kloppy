@@ -243,6 +243,7 @@ class EventType(Enum):
         PRESSURE (EventType):
         FORMATION_CHANGE (EventType):
         BALL_RECEIPT (EventType):
+        OWN_GOAL_FOR (EventType):
     """
 
     GENERIC = "generic"
@@ -266,6 +267,7 @@ class EventType(Enum):
     PRESSURE = "PRESSURE"
     FORMATION_CHANGE = "FORMATION_CHANGE"
     BALL_RECEIPT = "BALL_RECEIPT"
+    OWN_GOAL_FOR = "OWN_GOAL_FOR"
 
     def __repr__(self):
         return self.value
@@ -543,6 +545,23 @@ class DuelType(Enum):
 @dataclass
 class DuelQualifier(EnumQualifier):
     value: DuelType
+
+
+@dataclass
+class GoalQualifier(BoolQualifier):
+    """
+    Marks an event that scored a goal for the team owning this event.
+
+    Attached automatically (via EventDataset post-load) to ShotEvents
+    with result == ShotResult.GOAL, and to synthetic OwnGoalForEvents
+    on the team that benefited from an opponent's own goal.
+
+    ShotEvents with result == ShotResult.OWN_GOAL do NOT receive this
+    qualifier — the synthetic OwnGoalForEvent on the opposing team
+    carries it instead.
+    """
+
+    pass
 
 
 @dataclass
@@ -1160,6 +1179,26 @@ class BallReceiptEvent(Event):
 
 
 @dataclass(repr=False)
+@docstring_inherit_attributes(Event)
+class OwnGoalForEvent(Event):
+    """
+    OwnGoalForEvent
+
+    Synthetic event representing a goal credited to a team via an
+    opponent's own goal. Inserted after the source ShotEvent whose
+    result == ShotResult.OWN_GOAL. The team is the beneficiary
+    (opponent of the shooter); player is None.
+
+    Attributes:
+        event_type (EventType): `EventType.OWN_GOAL_FOR`
+        event_name (str): `"own_goal_for"`
+    """
+
+    event_type: EventType = EventType.OWN_GOAL_FOR
+    event_name: str = "own_goal_for"
+
+
+@dataclass(repr=False)
 class EventDataset(Dataset[Event]):
     """
     EventDataset
@@ -1525,6 +1564,7 @@ __all__ = [
     "GoalkeeperAction",
     "GoalkeeperActionType",
     "CounterAttackQualifier",
+    "GoalQualifier",
     "UnderPressureQualifier",
     "InterceptionQualifier",
     "DuelEvent",
@@ -1533,4 +1573,5 @@ __all__ = [
     "DuelResult",
     "BallReceiptEvent",
     "BallReceiptResult",
+    "OwnGoalForEvent",
 ]
