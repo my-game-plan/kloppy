@@ -23,7 +23,7 @@ from kloppy.domain import (
     SubstitutionEvent,
     GoalkeeperEvent,
 )
-from kloppy.domain.models.event import PressureEvent, BallReceiptEvent
+from kloppy.domain.models.event import PressureEvent, BallReceiptEvent, OwnGoalForEvent
 
 T = TypeVar("T")
 
@@ -134,3 +134,6 @@ class EventFactory:
 
     def build_ball_receipt(self, **kwargs) -> BallReceiptEvent:
         return create_event(BallReceiptEvent, **kwargs)
+
+    def build_own_goal_for(self, **kwargs) -> OwnGoalForEvent:
+        return create_event(OwnGoalForEvent, **kwargs)

@@ -161,3 +161,25 @@ class TestOwnGoalForDomain:
 
         assert OwnGoalForEvent.event_type == EventType.OWN_GOAL_FOR
         assert OwnGoalForEvent.event_name == "own_goal_for"
+
+    def test_event_factory_build_own_goal_for(self):
+        from kloppy.domain import EventFactory, OwnGoalForEvent
+
+        factory = EventFactory()
+        event = factory.build_own_goal_for(
+            event_id="ogf-1",
+            coordinates=None,
+            team=None,
+            player=None,
+            ball_owning_team=None,
+            ball_state=None,
+            period=None,
+            timestamp=None,
+            raw_event=None,
+            qualifiers=None,
+            related_event_ids=[],
+            result=None,
+        )
+        assert isinstance(event, OwnGoalForEvent)
+        assert event.event_id == "ogf-1"
+        assert event.player is None
