@@ -40,6 +40,7 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
         self.min_length_meters = kwargs.get("min_length_meters") or 3
         self.max_length_meters = kwargs.get("max_length_meters") or 60
         self.max_duration = kwargs.get("max_duration") or timedelta(seconds=10)
+        self.max_speed_mps = kwargs.get("max_speed_mps") or 12.0
 
     def add_synthetic_event(self, dataset: EventDataset) -> EventDataset:
         pitch = dataset.metadata.pitch_dimensions
@@ -116,6 +117,16 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
                     event.timestamp
                     + (next_event.timestamp - event.timestamp) / 10
                 )
+
+            carry_duration = next_event.timestamp - last_timestamp
+            # implausible speed (teleport between disconnected events)
+            carry_seconds = carry_duration.total_seconds()
+            if (
+                carry_seconds > 0
+                and distance_meters / carry_seconds > self.max_speed_mps
+            ):
+                continue
+
             generic_event_args = {
                 "event_id": f"carry-{event.event_id}",
                 "coordinates": last_coord,
