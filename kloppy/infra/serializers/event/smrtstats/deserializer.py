@@ -297,35 +297,62 @@ class SmrtStatsInputs(NamedTuple):
     pitch_width: Optional[float] = None
 
 
-THROW_IN_SET_PIECE_ID = 2
-# Raw relative_coord_* values are in meters on smrtstats's 105x68 pitch.
+# Raw coord_* / relative_coord_* values are in metres on smrtstats's
+# 105 x 68 pitch. coord_* is in the absolute pitch frame; relative_coord_*
+# is in the action-executing team's attacking frame and is either equal to
+# the absolute coord ("direct") or mirrored around the pitch centre
+# ("mirrored") for every event the team plays.
 SMRTSTATS_PITCH_LENGTH = 105
-SMRTSTATS_PITCH_MIDFIELD = SMRTSTATS_PITCH_LENGTH / 2
+SMRTSTATS_PITCH_WIDTH = 68
+_PITCH_DIMS = {"x": SMRTSTATS_PITCH_LENGTH, "y": SMRTSTATS_PITCH_WIDTH}
 
 
-def _correct_throwin_start_x(raw_event: Dict) -> bool:
-    """Mirror the throw-in start x when smrtstats delivers it on the
-    opposite sideline from the destination.
-
-    Smrtstats occasionally encodes ``relative_coord_x`` (start) in a
-    different attacking-direction frame than
-    ``relative_coord_x_destination`` (end), producing throw-ins whose
-    start and end sit on opposite sidelines. Affects ~25% of throw-ins
-    across multiple competitions. Mutates ``raw_event`` in place and
-    returns whether a correction was applied.
+def _attack_direction_mirrored(raw_event: Dict) -> Optional[bool]:
+    """Detect whether ``relative_coord_*`` is mirrored from ``coord_*`` for
+    this event. Returns True if mirrored, False if direct, None if neither
+    can be determined (e.g. every relative coord is null, or all pairs sit
+    on the pitch midpoint where direct and mirrored values coincide).
     """
-    if raw_event.get("set_piece_id") != THROW_IN_SET_PIECE_ID:
-        return False
-    start_x = raw_event.get("relative_coord_x")
-    end_x = raw_event.get("relative_coord_x_destination")
-    if start_x is None or end_x is None:
-        return False
-    if (start_x > SMRTSTATS_PITCH_MIDFIELD) == (
-        end_x > SMRTSTATS_PITCH_MIDFIELD
-    ):
-        return False
-    raw_event["relative_coord_x"] = SMRTSTATS_PITCH_LENGTH - start_x
-    return True
+    for axis in ("x", "y"):
+        dim = _PITCH_DIMS[axis]
+        for suffix in ("", "_destination"):
+            rel = raw_event.get(f"relative_coord_{axis}{suffix}")
+            absolute = raw_event.get(f"coord_{axis}{suffix}")
+            if rel is None or absolute is None:
+                continue
+            direct = abs(rel - absolute)
+            mirrored = abs(rel - (dim - absolute))
+            # Skip ambiguous midpoint where the two interpretations coincide.
+            if abs(direct - mirrored) < 1.0:
+                continue
+            return mirrored < direct
+    return None
+
+
+def _resolve_relative_coord(
+    raw_event: Dict, axis: str, is_destination: bool
+) -> float:
+    """Return ``relative_coord_<axis>[_destination]`` for use as a kloppy
+    coordinate.
+
+    Smrtstats emits ``relative_coord_*`` as null when the event sits on the
+    boundary of the pitch (x=0/105 or y=0/68); the absolute ``coord_*`` is
+    still populated. Recover the relative value from the absolute by
+    checking the team's attacking-direction frame on any other non-null
+    coord pair on the same event. Falls back to 0 when even the absolute
+    is missing (matches the prior behaviour for malformed events).
+    """
+    suffix = "_destination" if is_destination else ""
+    rel = raw_event.get(f"relative_coord_{axis}{suffix}")
+    if rel is not None:
+        return rel
+    absolute = raw_event.get(f"coord_{axis}{suffix}")
+    if absolute is None:
+        return 0
+    mirrored = _attack_direction_mirrored(raw_event)
+    if mirrored is None:
+        return absolute
+    return (_PITCH_DIMS[axis] - absolute) if mirrored else absolute
 
 
 def _get_event_set_piece_qualifier(
@@ -547,17 +574,8 @@ def _parse_pass(raw_event: Dict, action_id: int, team: Team) -> Dict:
         result = PassResult.COMPLETE
         receiver_player = team.get_player_by_id(str(raw_event["recipient_id"]))
 
-    receiver_x = (
-        raw_event["relative_coord_x_destination"]
-        if raw_event["relative_coord_x_destination"]
-        else 0
-    )
-    receiver_y = (
-        raw_event["relative_coord_y_destination"]
-        if raw_event["relative_coord_y_destination"]
-        else 0
-    )
-
+    receiver_x = _resolve_relative_coord(raw_event, "x", is_destination=True)
+    receiver_y = _resolve_relative_coord(raw_event, "y", is_destination=True)
     receiver_coordinates = Point(x=receiver_x, y=receiver_y)
 
     event_qualifiers = _get_event_qualifiers(raw_event)
@@ -942,21 +960,11 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                     ):
                         pass
 
-                    if _correct_throwin_start_x(raw_event):
-                        logger.debug(
-                            f"Corrected mirrored throw-in start_x for "
-                            f"event {raw_event.get('id')}"
-                        )
-
-                    x = (
-                        raw_event["relative_coord_x"]
-                        if raw_event["relative_coord_x"]
-                        else 0
+                    x = _resolve_relative_coord(
+                        raw_event, "x", is_destination=False
                     )
-                    y = (
-                        raw_event["relative_coord_y"]
-                        if raw_event["relative_coord_y"]
-                        else 0
+                    y = _resolve_relative_coord(
+                        raw_event, "y", is_destination=False
                     )
                     coordinates = Point(x=x, y=y)
                     timestamp = timedelta(

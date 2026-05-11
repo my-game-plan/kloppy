@@ -542,24 +542,187 @@ class TestSmrtStatsFoulCommittedEvent:
 #         ]
 
 
-class TestSmrtStatsThrowInCoordinates:
-    """Smrtstats encodes ``relative_coord_x`` for ~25% of throw-ins on
-    the opposite sideline from the destination; the parser mirrors
-    start_x (``105 - x``) to put the thrower back on the receiver's
-    sideline."""
+class TestSmrtStatsRelativeCoordRecovery:
+    """Smrtstats emits ``relative_coord_*`` as null when an event sits on
+    a pitch boundary (x=0/105 or y=0/68); the absolute ``coord_*`` is
+    still populated. The parser recovers the missing relative value from
+    the absolute, using the team's attacking-direction frame detected
+    from any other non-null coord pair on the same event.
+    """
 
-    def test_known_mirrored_throwin_is_corrected(self, dataset: EventDataset):
-        """Anchor: event 239947349 has raw start_x=35.8 and end_x=54.18
-        (opposite sides of midfield). The parser must mirror start_x to
-        ``105 - 35.8 = 69.2``."""
+    def test_attack_direction_detection_mirrored(self):
+        """A throw-in whose relative_coord_x is mirrored relative to
+        coord_x must be flagged as a mirrored-frame event."""
+        from kloppy.infra.serializers.event.smrtstats.deserializer import (
+            _attack_direction_mirrored,
+        )
+
+        raw = {
+            "coord_x": 69.2,
+            "coord_y": 0.0,
+            "relative_coord_x": 35.8,
+            "relative_coord_y": None,
+        }
+        assert _attack_direction_mirrored(raw) is True
+
+    def test_attack_direction_detection_direct(self):
+        """A pass whose relative_coord_x matches coord_x must be flagged
+        as a direct-frame event."""
+        from kloppy.infra.serializers.event.smrtstats.deserializer import (
+            _attack_direction_mirrored,
+        )
+
+        raw = {
+            "coord_x": 3.47,
+            "coord_y": 19.24,
+            "coord_x_destination": 18.06,
+            "coord_y_destination": 0.0,
+            "relative_coord_x": 3.47,
+            "relative_coord_y": 19.24,
+            "relative_coord_x_destination": 18.06,
+            "relative_coord_y_destination": None,
+        }
+        assert _attack_direction_mirrored(raw) is False
+
+    def test_attack_direction_detection_unknown(self):
+        """When every relative is null or every pair sits on the pitch
+        midpoint, orientation cannot be determined."""
+        from kloppy.infra.serializers.event.smrtstats.deserializer import (
+            _attack_direction_mirrored,
+        )
+
+        all_null = {
+            "coord_x": 0.0,
+            "coord_y": 0.0,
+            "relative_coord_x": None,
+            "relative_coord_y": None,
+        }
+        assert _attack_direction_mirrored(all_null) is None
+
+        midpoint = {
+            "coord_x": 52.5,
+            "coord_y": 34.0,
+            "relative_coord_x": 52.5,
+            "relative_coord_y": 34.0,
+        }
+        assert _attack_direction_mirrored(midpoint) is None
+
+    def test_resolve_relative_coord_passthrough(self):
+        """A populated relative coord must be returned unchanged."""
+        from kloppy.infra.serializers.event.smrtstats.deserializer import (
+            _resolve_relative_coord,
+        )
+
+        raw = {"relative_coord_x": 42.0, "coord_x": 63.0}
+        assert _resolve_relative_coord(raw, "x", is_destination=False) == 42.0
+
+    def test_resolve_relative_coord_recovers_mirrored(self):
+        """Null relative on a mirrored-frame event must recover as
+        ``pitch_dim - coord_*``."""
+        from kloppy.infra.serializers.event.smrtstats.deserializer import (
+            _resolve_relative_coord,
+        )
+
+        # Mirrored team (relative_x=35.8 mirrors coord_x=69.2); start_y is null.
+        raw = {
+            "coord_x": 69.2,
+            "coord_y": 0.0,
+            "relative_coord_x": 35.8,
+            "relative_coord_y": None,
+        }
+        assert _resolve_relative_coord(raw, "y", is_destination=False) == 68.0
+
+    def test_resolve_relative_coord_recovers_direct(self):
+        """Null relative on a direct-frame event must recover as
+        ``coord_*`` itself."""
+        from kloppy.infra.serializers.event.smrtstats.deserializer import (
+            _resolve_relative_coord,
+        )
+
+        # Direct team (relative_x matches coord_x); destination_y is null at
+        # the y=0 sideline.
+        raw = {
+            "coord_x": 3.47,
+            "coord_y": 19.24,
+            "coord_x_destination": 18.06,
+            "coord_y_destination": 0.0,
+            "relative_coord_x": 3.47,
+            "relative_coord_y": 19.24,
+            "relative_coord_x_destination": 18.06,
+            "relative_coord_y_destination": None,
+        }
+        assert _resolve_relative_coord(raw, "y", is_destination=True) == 0.0
+
+    def test_resolve_relative_coord_fallback_when_absolute_missing(self):
+        """When both relative and absolute are missing, fall back to 0
+        (matches prior behaviour for malformed events)."""
+        from kloppy.infra.serializers.event.smrtstats.deserializer import (
+            _resolve_relative_coord,
+        )
+
+        raw = {"relative_coord_x": None, "coord_x": None}
+        assert _resolve_relative_coord(raw, "x", is_destination=False) == 0
+
+    def test_throwin_start_y_recovered_on_mirrored_team(
+        self, dataset: EventDataset
+    ):
+        """Anchor: event 239947349 is a throw-in on a mirrored-frame team
+        with null relative_coord_y. Absolute coord_y=0 -> recovered to 68
+        (the sideline on the mirrored side)."""
         throw_in = dataset.get_event_by_id("239947349")
         assert throw_in is not None
         assert SetPieceType.THROW_IN in throw_in.get_qualifier_values(
             SetPieceQualifier
         )
-        assert throw_in.coordinates.x == pytest.approx(69.2)
+        # x is left as the raw relative_coord_x (no longer mirrored).
+        assert throw_in.coordinates.x == pytest.approx(35.8)
+        assert throw_in.coordinates.y == pytest.approx(68.0)
 
-    def test_no_throwins_with_mirrored_start(self, dataset: EventDataset):
+    def test_cross_destination_x_recovered_on_mirrored_team(
+        self, dataset: EventDataset
+    ):
+        """Anchor: event 239947395 is a pass on a mirrored-frame team
+        with null relative_coord_x_destination. Absolute
+        coord_x_destination=0 -> recovered to 105 (the byline opposite
+        the team's own goal)."""
+        event = dataset.get_event_by_id("239947395")
+        assert event is not None
+        assert event.event_type == EventType.PASS
+        assert event.receiver_coordinates.x == pytest.approx(105.0)
+        assert event.receiver_coordinates.y == pytest.approx(53.38)
+
+    def test_destination_y_recovered_on_direct_team(
+        self, dataset: EventDataset
+    ):
+        """Anchor: event 239947520 is a pass on a direct-frame team with
+        null relative_coord_y_destination. Absolute coord_y_destination=0
+        -> recovered to 0 (the sideline on the direct side)."""
+        event = dataset.get_event_by_id("239947520")
+        assert event is not None
+        assert event.event_type == EventType.PASS
+        assert event.receiver_coordinates.y == pytest.approx(0.0)
+
+    def test_destination_y_recovered_on_mirrored_team(
+        self, dataset: EventDataset
+    ):
+        """Anchor: event 239947654 is a pass on a mirrored-frame team
+        with null relative_coord_y_destination. Absolute
+        coord_y_destination=0 -> recovered to 68 (the sideline on the
+        mirrored side). This is the case the legacy ``if x else 0``
+        fallback handled incorrectly."""
+        event = dataset.get_event_by_id("239947654")
+        assert event is not None
+        assert event.event_type == EventType.PASS
+        assert event.receiver_coordinates.y == pytest.approx(68.0)
+
+    def test_every_throwin_starts_on_a_sideline(self, dataset: EventDataset):
+        """Sanity guard: a throw-in is taken from a sideline, so its
+        start y must be 0 or 68 in the smrtstats coord system. The
+        legacy bug defaulted null ``relative_coord_y`` to 0, which
+        happened to satisfy this on direct-frame teams but produced
+        midfield coords if any other regression slipped in. To also
+        catch regressions where every throw-in collapses to a single
+        sideline, the fixture must contain throw-ins from both."""
         throw_ins = [
             e
             for e in dataset.events
@@ -567,15 +730,138 @@ class TestSmrtStatsThrowInCoordinates:
             and SetPieceType.THROW_IN
             in e.get_qualifier_values(SetPieceQualifier)
         ]
+        assert throw_ins, "fixture should contain throw-ins"
+        sidelines = set()
         for tin in throw_ins:
-            if tin.receiver_coordinates is None:
-                continue
-            start_side = tin.coordinates.x > 52.5
-            end_side = tin.receiver_coordinates.x > 52.5
-            assert start_side == end_side, (
-                f"throw-in {tin.event_id} has start x={tin.coordinates.x} "
-                f"and end x={tin.receiver_coordinates.x} on opposite sides"
+            assert tin.coordinates.y in (0.0, 68.0), (
+                f"throw-in {tin.event_id} starts at y={tin.coordinates.y}, "
+                f"not on a sideline"
             )
+            sidelines.add(tin.coordinates.y)
+        assert sidelines == {0.0, 68.0}, (
+            "expected throw-ins on both sidelines; a single-sideline-only "
+            "result usually means null relative_coord_y is silently "
+            "defaulting to 0 instead of being recovered"
+        )
+
+    def test_no_throwin_crosses_the_pitch_laterally(
+        self, dataset: EventDataset
+    ):
+        """The reported TAS-3065 symptom: throw-ins visualised as
+        spanning the full width of the pitch (thrower on one sideline,
+        receiver near the opposite sideline). In reality the thrower
+        and receiver are always on the same lateral half of the pitch
+        — across the full fixture no throw-in's receiver lands beyond
+        the y=34 midline relative to the thrower's sideline. The
+        legacy null-default produced exactly the cross-pitch arrow
+        whenever a mirrored-frame team threw in: thrower forced to
+        y=0 while the receiver kept its real (e.g. y≈60) coordinate.
+        """
+        throw_ins = [
+            e
+            for e in dataset.events
+            if e.event_type == EventType.PASS
+            and SetPieceType.THROW_IN
+            in e.get_qualifier_values(SetPieceQualifier)
+            and e.receiver_coordinates is not None
+        ]
+        assert throw_ins, "fixture should contain throw-ins with receivers"
+        for tin in throw_ins:
+            start_y = tin.coordinates.y
+            recv_y = tin.receiver_coordinates.y
+            if start_y == 0.0:
+                assert recv_y < 34.0, (
+                    f"throw-in {tin.event_id} from y=0 to y={recv_y} "
+                    f"appears to cross the pitch — classic null "
+                    f"relative_coord_y bug"
+                )
+            elif start_y == 68.0:
+                assert recv_y > 34.0, (
+                    f"throw-in {tin.event_id} from y=68 to y={recv_y} "
+                    f"appears to cross the pitch — classic null "
+                    f"relative_coord_y bug"
+                )
+
+    def test_no_cross_ends_in_attackers_defensive_half(
+        self, dataset: EventDataset
+    ):
+        """Sanity guard: under ``Orientation.ACTION_EXECUTING_TEAM`` the
+        attacking team plays towards x=105. A cross is by definition
+        delivered into the opponent's box near that byline; it cannot
+        end up deep in the attacker's own defensive half. The legacy
+        bug defaulted null ``relative_coord_x_destination`` to 0 (own
+        goal line), so any cross with a null destination on a mirrored
+        team appeared to travel from x≈75 back to x=0. This guard
+        flags that exact regression."""
+        crosses = [
+            e
+            for e in dataset.events
+            if e.event_type == EventType.PASS
+            and PassType.CROSS in e.get_qualifier_values(PassQualifier)
+        ]
+        assert crosses, "fixture should contain crosses"
+        for cross in crosses:
+            if cross.receiver_coordinates is None:
+                continue
+            assert cross.receiver_coordinates.x >= 52.5, (
+                f"cross {cross.event_id} starts at x={cross.coordinates.x} "
+                f"but ends at x={cross.receiver_coordinates.x} — back in "
+                f"the attacker's defensive half (looks like the null "
+                f"relative_coord_x_destination bug)"
+            )
+
+    def test_null_relative_coords_are_recovered_across_fixture(
+        self, dataset: EventDataset
+    ):
+        """Across the full fixture, every pass/start with a null
+        ``relative_coord_*`` and a populated ``coord_*`` must end up
+        with the recovered value the helper would compute (i.e. the
+        absolute itself for direct-frame teams, ``pitch_dim - absolute``
+        for mirrored-frame teams) — never the legacy zero default. At
+        least one event must be recovered to a non-zero value to prove
+        the recovery code path is exercised by real data."""
+        from kloppy.infra.serializers.event.smrtstats.deserializer import (
+            _attack_direction_mirrored,
+        )
+
+        recovered_nonzero = 0
+        for event in dataset.events:
+            raw = event.raw_event
+            mirrored = _attack_direction_mirrored(raw)
+            for is_destination, point in (
+                (False, event.coordinates),
+                (
+                    True,
+                    getattr(event, "receiver_coordinates", None),
+                ),
+            ):
+                if point is None:
+                    continue
+                suffix = "_destination" if is_destination else ""
+                for axis, dim in (("x", 105), ("y", 68)):
+                    if raw.get(f"relative_coord_{axis}{suffix}") is not None:
+                        continue
+                    absolute = raw.get(f"coord_{axis}{suffix}")
+                    if absolute is None:
+                        continue
+                    if mirrored is None:
+                        expected = absolute
+                    elif mirrored:
+                        expected = dim - absolute
+                    else:
+                        expected = absolute
+                    actual = getattr(point, axis)
+                    assert actual == pytest.approx(expected), (
+                        f"event {event.event_id}: {axis}{suffix} "
+                        f"expected {expected} (absolute={absolute}, "
+                        f"mirrored={mirrored}) but got {actual}"
+                    )
+                    if expected != 0:
+                        recovered_nonzero += 1
+        assert recovered_nonzero > 0, (
+            "fixture should exercise the recovery branch; if this fails the "
+            "fixture changed or the helper is being short-circuited"
+        )
 
 
 class TestSmrtStatsCreatePeriods:
