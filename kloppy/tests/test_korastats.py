@@ -393,6 +393,75 @@ class TestKoraStatsDuelEvent:
     #     ]
 
 
+class TestKoraStatsTackleEvent:
+    """Tests for KoraStats Tackle (event_id=33) and TackleClear (event_id=36).
+
+    event_id=33 is defender-attributed: the player_id on the row is the
+    defender on the defending team. result_id=10 means the defender won
+    the duel (kept the ball away), result_id=11 means the defender lost
+    (got dribbled past). event_id=36 (DEFENSIVE_TACKLE_CLEAR) is always
+    a defender-won duel.
+
+    See TAS-2898.
+    """
+
+    def test_tackle_success_is_defending_duel_won(
+        self, dataset: EventDataset
+    ):
+        # _id=144880593, event_id=33, result_id=10 → defender won
+        event = dataset.get_event_by_id("144880593")
+        assert event.event_type == EventType.DUEL
+        assert event.result == DuelResult.WON
+        assert DuelType.TACKLE in event.get_qualifier_values(DuelQualifier)
+        # player_id on the row is the defender
+        assert event.player.player_id == "358812"
+        # ball is owned by the opposing team (the attacker who was tackled)
+        assert event.ball_owning_team is not None
+        assert event.ball_owning_team != event.team
+        assert event.ball_owning_team.team_id == "23109"
+
+    def test_tackle_fail_is_defending_duel_lost(self, dataset: EventDataset):
+        # _id=144880354, event_id=33, result_id=11 → defender lost
+        event = dataset.get_event_by_id("144880354")
+        assert event.event_type == EventType.DUEL
+        assert event.result == DuelResult.LOST
+        assert DuelType.TACKLE in event.get_qualifier_values(DuelQualifier)
+        assert event.player.player_id == "436626"
+        assert event.ball_owning_team is not None
+        assert event.ball_owning_team != event.team
+        assert event.ball_owning_team.team_id == "10107"
+
+    def test_tackle_clear_is_defending_duel_won(self, dataset: EventDataset):
+        # _id=144880577, event_id=36 → defender won (always)
+        event = dataset.get_event_by_id("144880577")
+        assert event.event_type == EventType.DUEL
+        assert event.result == DuelResult.WON
+        assert DuelType.TACKLE in event.get_qualifier_values(DuelQualifier)
+        assert event.ball_owning_team is not None
+        assert event.ball_owning_team != event.team
+
+    def test_tackle_results_have_correct_distribution(
+        self, dataset: EventDataset
+    ):
+        """Every tackle-class duel should have a typed DuelResult.
+
+        Fixture contains: event_id=33 → 20 success + 21 fail;
+        event_id=36 → 25 (always won). So the tackle duels should be
+        45 WON and 21 LOST, with no None results.
+        """
+        duels = dataset.find_all("duel")
+        tackle_duels = [
+            d
+            for d in duels
+            if DuelType.TACKLE in (d.get_qualifier_values(DuelQualifier) or [])
+        ]
+        won = sum(1 for d in tackle_duels if d.result == DuelResult.WON)
+        lost = sum(1 for d in tackle_duels if d.result == DuelResult.LOST)
+        assert won == 45
+        assert lost == 21
+        assert won + lost == len(tackle_duels)
+
+
 class TestsKoraStatsCardEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should create a card event for each card given"""

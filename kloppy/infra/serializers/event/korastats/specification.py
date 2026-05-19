@@ -516,7 +516,25 @@ class OWN_GOAL(EVENT):
 
 
 class TACKLE(EVENT):
-    """KoraStats Tackle event."""
+    """KoraStats Tackle event.
+
+    KoraStats emits tackles from the defender's perspective:
+    - DEFENSIVE_TACKLE_CLEAR (3, 36): defender won, no result_id.
+    - POSSESSION_TACKLE (4, 33): defender's row, result_id=10 (Success,
+      defender won) or result_id=11 (Fail, defender got dribbled past).
+
+    Despite the (4, …) category, POSSESSION_TACKLE is a defensive action:
+    the player on the row is the defender, so the ball is owned by the
+    opposing (attacking) team.
+    """
+
+    def _parse_generic_kwargs(self, teams: List[Team]) -> Dict:
+        kwargs = super()._parse_generic_kwargs(teams)
+        if self.event_category_type == EVENT_CATEGORY_TYPE.POSSESSION_TACKLE:
+            kwargs["ball_owning_team"] = next(
+                t for t in teams if t != self.team
+            )
+        return kwargs
 
     def _create_events(
         self,
@@ -532,7 +550,7 @@ class TACKLE(EVENT):
         ):
             result = DuelResult.WON
         else:
-            result = interception_result_mapping[self.result]
+            result = duel_result_mapping[self.result]
 
         qualifiers = [
             DuelQualifier(value=DuelType.TACKLE),
