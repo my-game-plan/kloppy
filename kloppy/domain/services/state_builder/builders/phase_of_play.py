@@ -26,6 +26,7 @@ BALL_PROGRESSION_THRESHOLD_METERS = 10.0
 COUNTER_ATTACK_MAX_TIME_CLOSE_TO_GOAL_SECONDS = 15
 COUNTER_ATTACK_EXTRA_TIME_CLOSE_TO_GOAL_SECONDS = 5
 COUNTER_ATTACK_SUSTAIN_POSSESSION_MAX_TIME_SECONDS = 15
+SET_PLAY_MIN_DURATION_SECONDS = 7
 
 class PhaseOfPlayType(Enum):
     TRANSITION = "transition"
@@ -261,8 +262,30 @@ def detect_exit_transition(event: Event, last_possession_event: Optional[Event])
 
 def detect_exit_set_play(event: Event) -> bool:
     """
-    Detect if set-play should end based on consecutive possessing events from the same team but different players.
+    Detect if set-play should end based on consecutive possessing events from
+    the same team but different players.
+
+    The set-play phase persists for at least SET_PLAY_MIN_DURATION_SECONDS
+    after a set piece *in the attacking final third*, so that a blocked
+    /saved/missed shot followed by a same-team rebound does not end the
+    phase. Set pieces outside the final third (e.g. midfield throw-ins or
+    free kicks) don't get this extension — they fall through to the
+    player-change rule immediately, since the rebound dynamics that
+    motivate the extension don't apply away from goal.
     """
+    cursor = event.prev_record
+    while cursor and cursor.period == event.period:
+        if event.timestamp - cursor.timestamp >= timedelta(
+            seconds=SET_PLAY_MIN_DURATION_SECONDS
+        ):
+            break
+        if (
+            cursor.get_qualifier_value(SetPieceQualifier)
+            and is_final_third(cursor)
+        ):
+            return False
+        cursor = cursor.prev_record
+
     last_possession_event = get_last_possession_event(event)
     if last_possession_event.get_qualifier_value(SetPieceQualifier):
         return False
