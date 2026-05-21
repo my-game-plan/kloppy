@@ -358,7 +358,7 @@
     <Event id="2614243655" event_id="1010" type_id="32" period_id="4" min="105" sec="0" team_id="569" outcome="1" x="0.0" y="0.0" timestamp="2018-09-23T18:35:01.810" last_modified="2023-11-06T00:22:52" version="1699230172396">
       <Q id="4637465517" qualifier_id="127" value="Left to Right" />
     </Event>
-    <Event id="2614243657" event_id="899" type_id="1" period_id="4" min="105" sec="0" player_id="460842" team_id="2592" outcome="1" x="49.9" y="50.4" timestamp="2023-11-06T00:22:52.306" timestamp_utc="2023-11-06T00:22:52.306" last_modified="2023-11-06T00:22:54" version="1699230173937">
+    <Event id="2614243657" event_id="899" type_id="1" period_id="4" min="105" sec="0" player_id="460842" team_id="2592" outcome="1" x="49.9" y="50.4" timestamp="2018-09-23T18:35:01.810" timestamp_utc="2018-09-23T17:35:01.810" last_modified="2023-11-06T00:22:54" version="1699230173937">
       <Q id="4637465527" qualifier_id="140" value="40.8" />
       <Q id="4637465531" qualifier_id="212" value="10.5" />
       <Q id="4637465529" qualifier_id="141" value="56.9" />

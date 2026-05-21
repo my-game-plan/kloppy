@@ -1,0 +1,400 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2001-2026 Opta Sportsdata Ltd. All rights reserved. -->
+
+<!-- PRODUCTION HEADER
+     produced on:        inxopta-djobq07.nexus.opta.net
+     production time:    20260519T153219,759Z
+     production module:  Opta::Feed::XML::Soccer::F7
+-->
+<SoccerFeed TimeStamp="20260519T163218+0100">
+  <SoccerDocument Type="Result" detail_id="1" uID="f2615297">
+    <Competition uID="c226">
+      <Country>Sweden</Country>
+      <Name>Swedish Allsvenskan</Name>
+      <Stat Type="season_id">2026</Stat>
+      <Stat Type="season_name">Season 2026/2027</Stat>
+      <Stat Type="symid">SE_AS</Stat>
+      <Stat Type="matchday">8</Stat>
+    </Competition>
+    <MatchData>
+      <MatchInfo AdditionalInfo="Behind Closed Doors" MatchType="Regular" Period="FullTime" PostMatch="1" TimeFrameLengthId="1" TimeStamp="20260519T151719+0100">
+        <Date>20260519T140000+0100</Date>
+        <DateLocal>20260519T150000+0200</DateLocal>
+        <DateUtc>20260519T130000+0000</DateUtc>
+        <Result Type="NormalResult" Winner="t244" />
+      </MatchInfo>
+      <MatchOfficial uID="o43887">
+        <OfficialData>
+          <OfficialRef Type="Main" />
+        </OfficialData>
+        <OfficialName>
+          <First>Glenn</First>
+          <Last>Nyberg</Last>
+        </OfficialName>
+      </MatchOfficial>
+      <AssistantOfficials>
+        <AssistantOfficial FirstName="Mahbod" LastName="Beigi" Type="Assistant Referee 1" uID="o45474" />
+        <AssistantOfficial FirstName="Andreas" LastName="Söderkvist" Type="Assistant Referee 2" uID="o45567" />
+        <AssistantOfficial FirstName="Niclas" LastName="Karlsson" Type="Fourth official" uID="o67795" />
+      </AssistantOfficials>
+      <Stat Type="match_time">100</Stat>
+      <Stat Type="first_half_start">20260518T180549+0100</Stat>
+      <Stat Type="first_half_start_utc">20260518T170549+0000</Stat>
+      <Stat Type="first_half_time">50</Stat>
+      <Stat Type="first_half_stop">20260519T141103+0100</Stat>
+      <Stat Type="first_half_stop_utc">20260519T131103+0000</Stat>
+      <Stat Type="second_half_start">20260519T142300+0100</Stat>
+      <Stat Type="second_half_start_utc">20260519T132300+0000</Stat>
+      <Stat Type="second_half_time">55</Stat>
+      <Stat Type="second_half_stop">20260519T151717+0100</Stat>
+      <Stat Type="second_half_stop_utc">20260519T141717+0000</Stat>
+      <TeamData AverageAge="27.9" Formation="532" Score="2" Side="Home" TeamRef="t417">
+        <Booking Card="Yellow" CardType="Yellow" EventID="2939848879" EventNumber="2891" Min="88" Period="SecondHalf" PlayerRef="p61778" Reason="Dissent" Sec="5" Time="89" TimeStamp="20260519T150605+0100" TimeStampUTC="20260519T140605+0000" uID="b417-1" />
+        <Booking Card="Yellow" CardType="Yellow" EventID="2939849101" EventNumber="2892" ManagerRef="man54876" Min="88" Period="SecondHalf" Reason="Dissent" Sec="40" Time="89" TimeStamp="20260519T150640+0100" TimeStampUTC="20260519T140640+0000" uID="b417-2" />
+        <Booking Card="Yellow" CardType="Yellow" EventID="2939850727" EventNumber="2983" Min="97" Period="SecondHalf" PlayerRef="p683488" Reason="Foul" Sec="15" Time="98" TimeStamp="20260519T151516+0100" TimeStampUTC="20260519T141516+0000" uID="b417-3" />
+        <Goal EventID="2939640345" EventNumber="1374" Min="36" Period="FirstHalf" PlayerRef="p685390" Sec="41" Time="37" TimeStamp="20260518T185404+0100" TimeStampUTC="20260518T175404+0000" Type="Goal" uID="g417-1">
+          <Assist PlayerRef="p61778">p61778</Assist>
+        </Goal>
+        <Goal EventID="2939848649" EventNumber="2875" Min="86" Period="SecondHalf" PlayerRef="p157851" Sec="14" Time="87" TimeStamp="20260519T150414+0100" TimeStampUTC="20260519T140414+0000" Type="Goal" uID="g417-2">
+          <Assist PlayerRef="p61778">p61778</Assist>
+        </Goal>
+        <PlayerLineUp>
+          <MatchPlayer Formation_Place="1" PlayerRef="p565487" Position="Goalkeeper" ShirtNumber="44" Status="Start" />
+          <MatchPlayer Formation_Place="5" PlayerRef="p61812" Position="Defender" ShirtNumber="6" Status="Start" />
+          <MatchPlayer Formation_Place="3" PlayerRef="p164593" Position="Defender" ShirtNumber="19" Status="Start" />
+          <MatchPlayer Formation_Place="6" PlayerRef="p531784" Position="Defender" ShirtNumber="5" Status="Start" />
+          <MatchPlayer Captain="1" Formation_Place="2" PlayerRef="p157851" Position="Defender" ShirtNumber="14" Status="Start" />
+          <MatchPlayer Formation_Place="4" PlayerRef="p624620" Position="Defender" ShirtNumber="2" Status="Start" />
+          <MatchPlayer Formation_Place="8" PlayerRef="p218339" Position="Midfielder" ShirtNumber="23" Status="Start" />
+          <MatchPlayer Formation_Place="7" PlayerRef="p685390" Position="Midfielder" ShirtNumber="17" Status="Start" />
+          <MatchPlayer Formation_Place="11" PlayerRef="p720682" Position="Midfielder" ShirtNumber="8" Status="Start" />
+          <MatchPlayer Formation_Place="10" PlayerRef="p445539" Position="Striker" ShirtNumber="11" Status="Start" />
+          <MatchPlayer Formation_Place="9" PlayerRef="p61778" Position="Striker" ShirtNumber="22" Status="Start" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p548847" Position="Substitute" ShirtNumber="33" Status="Sub" SubPosition="Defender" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p587639" Position="Substitute" ShirtNumber="34" Status="Sub" SubPosition="Goalkeeper" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p731191" Position="Substitute" ShirtNumber="15" Status="Sub" SubPosition="Forward" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p565492" Position="Substitute" ShirtNumber="21" Status="Sub" SubPosition="Midfielder" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p106936" Position="Substitute" ShirtNumber="3" Status="Sub" SubPosition="Defender" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p570081" Position="Substitute" ShirtNumber="24" Status="Sub" SubPosition="Defender" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p720789" Position="Substitute" ShirtNumber="29" Status="Sub" SubPosition="Defender" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p570078" Position="Substitute" ShirtNumber="16" Status="Sub" SubPosition="Defender" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p683488" Position="Substitute" ShirtNumber="25" Status="Sub" SubPosition="Midfielder" />
+        </PlayerLineUp>
+        <Substitution EventID="2939843369" EventNumber="2706" Min="69" Period="2" Reason="Tactical" Sec="12" SubOff="p164593" SubOn="p683488" SubstitutePosition="3" Time="70" TimeStamp="20260519T144713+0100" TimeStampUTC="20260519T134713+0000" uID="s417-1" />
+        <Substitution EventID="2939843407" EventNumber="2707" Min="69" Period="2" Reason="Tactical" Sec="15" SubOff="p218339" SubOn="p570078" SubstitutePosition="2" Time="70" TimeStamp="20260519T144716+0100" TimeStampUTC="20260519T134716+0000" uID="s417-2" />
+        <Substitution EventID="2939845015" EventNumber="2758" Min="74" Period="2" Reason="Tactical" Sec="30" SubOff="p720682" SubOn="p731191" SubstitutePosition="4" Time="75" TimeStamp="20260519T145230+0100" TimeStampUTC="20260519T135230+0000" uID="s417-3" />
+        <Substitution EventID="2939845045" EventNumber="2759" Min="74" Period="2" Reason="Tactical" Sec="30" SubOff="p685390" SubOn="p720789" SubstitutePosition="2" Time="75" TimeStamp="20260519T145231+0100" TimeStampUTC="20260519T135231+0000" uID="s417-4" />
+      </TeamData>
+      <TeamData AverageAge="24.8" Formation="442" Score="3" Side="Away" TeamRef="t244">
+        <Booking Card="Yellow" CardType="Yellow" EventID="2939625661" EventNumber="11810" Min="17" Period="FirstHalf" PlayerRef="p207884" Reason="Foul" Sec="15" Time="18" TimeStamp="20260518T183438+0100" TimeStampUTC="20260518T173438+0000" uID="b244-1" />
+        <Booking Card="Yellow" CardType="Yellow" EventID="2939843069" EventNumber="26911" Min="68" Period="SecondHalf" PlayerRef="p232091" Reason="Foul" Sec="29" Time="69" TimeStamp="20260519T144629+0100" TimeStampUTC="20260519T134629+0000" uID="b244-2" />
+        <Booking Card="Yellow" CardType="Yellow" EventID="2939846279" EventNumber="27912" Min="78" Period="SecondHalf" PlayerRef="p180662" Reason="Foul" Sec="27" Time="79" TimeStamp="20260519T145627+0100" TimeStampUTC="20260519T135627+0000" uID="b244-3" />
+        <Goal EventID="2939628327" EventNumber="12113" Min="20" Period="FirstHalf" PlayerRef="p232091" Sec="11" Time="21" TimeStamp="20260518T183733+0100" TimeStampUTC="20260518T173733+0000" Type="Goal" uID="g244-1">
+          <Assist PlayerRef="p625775">p625775</Assist>
+        </Goal>
+        <Goal EventID="2939634429" EventNumber="12814" Min="27" Period="FirstHalf" PlayerRef="p648131" Sec="47" Time="28" TimeStamp="20260518T184510+0100" TimeStampUTC="20260518T174510+0000" Type="Goal" uID="g244-2">
+          <Assist PlayerRef="p625775">p625775</Assist>
+        </Goal>
+        <Goal EventID="2939849265" EventNumber="29015" Min="89" Period="SecondHalf" PlayerRef="p575855" Sec="45" Time="90" TimeStamp="20260519T150746+0100" TimeStampUTC="20260519T140746+0000" Type="Goal" uID="g244-3">
+          <Assist PlayerRef="p508143">p508143</Assist>
+        </Goal>
+        <PlayerLineUp>
+          <MatchPlayer Formation_Place="1" PlayerRef="p578592" Position="Goalkeeper" ShirtNumber="25" Status="Start" />
+          <MatchPlayer Formation_Place="2" PlayerRef="p240166" Position="Defender" ShirtNumber="17" Status="Start" />
+          <MatchPlayer Formation_Place="3" PlayerRef="p575855" Position="Defender" ShirtNumber="18" Status="Start" />
+          <MatchPlayer Formation_Place="5" PlayerRef="p627127" Position="Defender" ShirtNumber="4" Status="Start" />
+          <MatchPlayer Formation_Place="6" PlayerRef="p180662" Position="Defender" ShirtNumber="5" Status="Start" />
+          <MatchPlayer Formation_Place="7" PlayerRef="p479433" Position="Midfielder" ShirtNumber="29" Status="Start" />
+          <MatchPlayer Formation_Place="8" PlayerRef="p515742" Position="Midfielder" ShirtNumber="15" Status="Start" />
+          <MatchPlayer Formation_Place="11" PlayerRef="p648131" Position="Midfielder" ShirtNumber="26" Status="Start" />
+          <MatchPlayer Captain="1" Formation_Place="4" PlayerRef="p232091" Position="Midfielder" ShirtNumber="3" Status="Start" />
+          <MatchPlayer Formation_Place="9" PlayerRef="p207884" Position="Striker" ShirtNumber="14" Status="Start" />
+          <MatchPlayer Formation_Place="10" PlayerRef="p625775" Position="Striker" ShirtNumber="7" Status="Start" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p246081" Position="Substitute" ShirtNumber="23" Status="Sub" SubPosition="Midfielder" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p495426" Position="Substitute" ShirtNumber="8" Status="Sub" SubPosition="Midfielder" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p508143" Position="Substitute" ShirtNumber="9" Status="Sub" SubPosition="Forward" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p157846" Position="Substitute" ShirtNumber="34" Status="Sub" SubPosition="Goalkeeper" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p531792" Position="Substitute" ShirtNumber="16" Status="Sub" SubPosition="Midfielder" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p482450" Position="Substitute" ShirtNumber="11" Status="Sub" SubPosition="Forward" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p689776" Position="Substitute" ShirtNumber="27" Status="Sub" SubPosition="Forward" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p213399" Position="Substitute" ShirtNumber="10" Status="Sub" SubPosition="Midfielder" />
+          <MatchPlayer Formation_Place="0" PlayerRef="p581866" Position="Substitute" ShirtNumber="30" Status="Sub" SubPosition="Forward" />
+        </PlayerLineUp>
+        <Substitution EventID="2939843457" EventNumber="27016" Min="69" Period="2" Reason="Tactical" Sec="10" SubOff="p625775" SubOn="p508143" SubstitutePosition="4" Time="70" TimeStamp="20260519T144711+0100" TimeStampUTC="20260519T134711+0000" uID="s244-1" />
+        <Substitution EventID="2939843513" EventNumber="26917" Min="68" Period="2" Reason="Tactical" Sec="54" SubOff="p648131" SubOn="p246081" SubstitutePosition="3" Time="69" TimeStamp="20260519T144654+0100" TimeStampUTC="20260519T134654+0000" uID="s244-2" />
+        <Substitution EventID="2939849301" EventNumber="29018" Min="89" Period="2" Reason="Tactical" Sec="20" SubOff="p479433" SubOn="p482450" SubstitutePosition="4" Time="90" TimeStamp="20260519T150721+0100" TimeStampUTC="20260519T140721+0000" uID="s244-3" />
+      </TeamData>
+    </MatchData>
+    <Team uID="t417">
+      <Country>Sweden</Country>
+      <Kit id="28364" colour1="#990000" type="home" />
+      <Name>Örgryte</Name>
+      <Official_name>Örgryte IS</Official_name>
+      <Player Position="Goalkeeper" uID="p565487">
+        <PersonName>
+          <First>Hampus</First>
+          <Last>Gustafsson</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Defender" uID="p61812">
+        <PersonName>
+          <First>Mikael</First>
+          <Last>Dyrestam</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Defender" uID="p164593">
+        <PersonName>
+          <First>Anton</First>
+          <Last>Andreasson</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Defender" uID="p531784">
+        <PersonName>
+          <First>Christoffer</First>
+          <Last>Styffe</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Defender" uID="p157851">
+        <PersonName>
+          <First>Daniel</First>
+          <Last>Paulson</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Defender" uID="p624620">
+        <PersonName>
+          <First>Michael</First>
+          <Last>Parker</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Midfielder" uID="p218339">
+        <PersonName>
+          <First>Owen</First>
+          <Last>Parker-Price</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Midfielder" uID="p685390">
+        <PersonName>
+          <First>William</First>
+          <Last>Hofvander</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Midfielder" uID="p720682">
+        <PersonName>
+          <First>Benjamin</First>
+          <Last>Laturnus</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Striker" uID="p445539">
+        <PersonName>
+          <First>Noah</First>
+          <Last>Christoffersson</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Striker" uID="p61778">
+        <PersonName>
+          <First>Tobias</First>
+          <Last>Sana</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p548847">
+        <PersonName>
+          <First>Sebastian</First>
+          <Last>Lagerlund</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p587639">
+        <PersonName>
+          <First>Alex</First>
+          <Last>Rahm</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p731191">
+        <PersonName>
+          <First>Jerome</First>
+          <Last>Tibbling Ugwo</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p565492">
+        <PersonName>
+          <First>William</First>
+          <Last>Kenndal</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p106936">
+        <PersonName>
+          <First>Jonathan</First>
+          <Last>Azulay</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p570081">
+        <PersonName>
+          <First>William</First>
+          <Last>Svensson</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p720789">
+        <PersonName>
+          <First>Marlon</First>
+          <Last>Ebietomere</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p570078">
+        <PersonName>
+          <First>Hampus</First>
+          <Last>Dahlqvist</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p683488">
+        <PersonName>
+          <First>Demirel</First>
+          <Last>Hodzic</Last>
+        </PersonName>
+      </Player>
+      <Short_name>Örgryte</Short_name>
+      <TeamOfficial Type="Manager" uID="man54876">
+        <PersonName>
+          <First>Andreas</First>
+          <Last>Holmberg</Last>
+        </PersonName>
+      </TeamOfficial>
+    </Team>
+    <Team uID="t244">
+      <Country>Sweden</Country>
+      <Kit id="30572" colour1="#ffffff" colour2="#0941ec" type="home" />
+      <Name>IFK Göteborg</Name>
+      <Official_name>IFK Göteborg</Official_name>
+      <Player Position="Goalkeeper" uID="p578592">
+        <PersonName>
+          <First>Elis</First>
+          <Last>Bishesari</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Defender" uID="p240166">
+        <PersonName>
+          <First>Alexander</First>
+          <Last>Jallow</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Defender" uID="p575855">
+        <PersonName>
+          <First>Felix</First>
+          <Last>Eriksson</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Defender" uID="p627127">
+        <PersonName>
+          <First>Rockson</First>
+          <Last>Yeboah</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Defender" uID="p180662">
+        <PersonName>
+          <First>Jonas</First>
+          <Last>Bager</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Midfielder" uID="p479433">
+        <PersonName>
+          <First>Adam</First>
+          <Last>Wiberg</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Midfielder" uID="p515742">
+        <PersonName>
+          <First>David</First>
+          <Last>Kruse</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Midfielder" uID="p648131">
+        <PersonName>
+          <First>Benjamin</First>
+          <Last>Brantlind</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Midfielder" uID="p232091">
+        <PersonName>
+          <First>August</First>
+          <Last>Erlingmark</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Striker" uID="p207884">
+        <PersonName>
+          <First>Tobias</First>
+          <Last>Heintz</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Striker" uID="p625775">
+        <PersonName>
+          <First>Sebastian</First>
+          <Last>Clemmensen</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p246081">
+        <PersonName>
+          <First>Kolbeinn</First>
+          <Last>Thórdarson</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p495426">
+        <PersonName>
+          <First>Imam</First>
+          <Last>Jagne</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p508143">
+        <PersonName>
+          <First>Max</First>
+          <Last>Fenger</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p157846">
+        <PersonName>
+          <First>Fredrik</First>
+          <Known>Fredrik Andersson</Known>
+          <Last>Andersson</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p531792">
+        <PersonName>
+          <First>Filip</First>
+          <Last>Ottosson</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p482450">
+        <PersonName>
+          <First>Saidou</First>
+          <Last>Alioum</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p689776">
+        <PersonName>
+          <First>Alfons</First>
+          <Last>Borén</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p213399">
+        <PersonName>
+          <First>Ramon</First>
+          <Last>Lundqvist</Last>
+        </PersonName>
+      </Player>
+      <Player Position="Substitute" uID="p581866">
+        <PersonName>
+          <First>Tiago</First>
+          <Last>Coimbra</Last>
+        </PersonName>
+      </Player>
+      <Short_name>IFK Göteborg</Short_name>
+      <TeamOfficial Type="Manager" uID="man43882">
+        <PersonName>
+          <First>Stefan</First>
+          <Last>Billborn</Last>
+        </PersonName>
+      </TeamOfficial>
+    </Team>
+    <Venue uID="v5231">
+      <Country>Sweden</Country>
+      <Name>Gamla Ullevi</Name>
+    </Venue>
+  </SoccerDocument>
+</SoccerFeed>

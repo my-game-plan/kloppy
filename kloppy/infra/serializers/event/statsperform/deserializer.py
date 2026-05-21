@@ -59,6 +59,11 @@ EVENT_TYPE_START_DELAY = 27
 EVENT_TYPE_END_DELAY = 28
 EVENT_TYPE_OFFSIDE_PROVOKED = 55
 
+# Minimum wall-clock excess over game-clock to treat as an abandonment / extended
+# suspension and shift subsequent F24 event timestamps back accordingly. Set above
+# routine in-play delays (injuries, VAR) so only true match suspensions trigger.
+SUSPENSION_GAP_THRESHOLD = timedelta(minutes=15)
+
 EVENT_TYPE_PASS = 1
 EVENT_TYPE_OFFSIDE_PASS = 2
 EVENT_TYPE_TAKE_ON = 3
@@ -784,6 +789,58 @@ def _get_event_type_name(type_id: int) -> str:
     return event_type_names.get(type_id, "unknown")
 
 
+def _normalize_suspension_gaps(raw_events: List[OptaEvent]) -> None:
+    """Shift wall-clock event timestamps back across abandonment/suspension gaps.
+
+    Opta F24 events carry both a wall-clock `timestamp` and a game-clock
+    `time_min`/`time_sec`. When a match is paused for an extended period (a
+    suspension or abandonment with later resumption), wall-clock advances while
+    the game-clock does not. Without correction, `period.end_timestamp -
+    period.start_timestamp` and per-event offsets reflect wall-clock time,
+    which breaks consumers that assume game-clock semantics (notably the
+    minutes-played aggregator with `breakdown_key="possession_state"`).
+
+    For each period, walk events in order and apply a cumulative shift to each
+    event's wall-clock timestamp whenever the wall-clock delta between two
+    consecutive events exceeds the game-clock delta by more than
+    `SUSPENSION_GAP_THRESHOLD`. The END_PERIOD event is included in the walk,
+    so `period.end_timestamp` (set later from that event) is also corrected.
+    """
+    shift_per_period: Dict[int, timedelta] = {}
+    prev_per_period: Dict[int, OptaEvent] = {}
+    for raw_event in raw_events:
+        period_id = raw_event.period_id
+        shift = shift_per_period.get(period_id, timedelta(0))
+        if shift:
+            raw_event.timestamp -= shift
+        prev = prev_per_period.get(period_id)
+        if prev is not None:
+            wall_delta = raw_event.timestamp - prev.timestamp
+            game_delta = timedelta(
+                minutes=raw_event.time_min - prev.time_min,
+                seconds=raw_event.time_sec - prev.time_sec,
+            )
+            excess = wall_delta - game_delta
+            if excess > SUSPENSION_GAP_THRESHOLD:
+                logger.warning(
+                    "Detected suspension gap of %s in period %s between "
+                    "events %s (game %d:%02d) and %s (game %d:%02d); "
+                    "shifting subsequent timestamps back to preserve "
+                    "game-clock semantics.",
+                    excess,
+                    period_id,
+                    prev.id,
+                    prev.time_min,
+                    prev.time_sec,
+                    raw_event.id,
+                    raw_event.time_min,
+                    raw_event.time_sec,
+                )
+                raw_event.timestamp -= excess
+                shift_per_period[period_id] = shift + excess
+        prev_per_period[period_id] = raw_event
+
+
 class StatsPerformInputs(NamedTuple):
     meta_data: IO[bytes]
     meta_feed: str
@@ -825,6 +882,9 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                 for event in events_parser.extract_events()
                 if event.type_id != EVENT_TYPE_DELETED_EVENT
             ]
+
+            if inputs.event_feed.upper() == "F24":
+                _normalize_suspension_gaps(raw_events)
 
             possession_team = None
             periods_with_start_event = set()
