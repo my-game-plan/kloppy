@@ -543,6 +543,75 @@ class TestOptaBlockEvent:
         assert event.event_name == "block"
 
 
+class TestOptaAbandonment:
+    """Regression tests for matches abandoned and later resumed.
+
+    When the wall-clock between two consecutive F24 events spans an extended
+    pause (abandonment + resume), the deserializer must shift subsequent
+    wall-clock timestamps back so that `period.duration` and `event.timestamp`
+    reflect game-clock semantics. Otherwise downstream consumers that assume
+    game-clock (notably `aggregate("minutes_played", breakdown_key=...)`) blow
+    up by hours.
+
+    The fixture is the real Allsvenskan match Örgryte IS - IFK Göteborg
+    (2026-05-18), abandoned at ~minute 40 and resumed the next day.
+    """
+
+    @pytest.fixture(scope="class")
+    def abandoned_dataset(self, base_dir) -> EventDataset:
+        return opta.load(
+            f7_data=base_dir / "files" / "opta_abandonment_f7.xml",
+            f24_data=base_dir / "files" / "opta_abandonment_f24.xml",
+            coordinates="opta",
+            exclude_penalty_shootouts=True,
+        )
+
+    def test_period_duration_reflects_game_clock(self, abandoned_dataset):
+        """Period 1 duration should be game-clock (~50 min), not wall-clock (~20 h)."""
+        period_1 = abandoned_dataset.metadata.periods[0]
+        assert period_1.duration < timedelta(minutes=90)
+        assert period_1.duration > timedelta(minutes=45)
+
+    def test_minutes_played_breakdown_sums_match_total(
+        self, abandoned_dataset
+    ):
+        """Per-player IN+OUT+DEAD must equal the no-breakdown total."""
+        totals = {
+            row.key.player: row.duration
+            for row in abandoned_dataset.aggregate("minutes_played")
+            if row.key.player is not None
+        }
+        breakdown_sums: dict = {}
+        for row in abandoned_dataset.aggregate(
+            "minutes_played", breakdown_key="possession_state"
+        ):
+            if row.key.player is None:
+                continue
+            breakdown_sums[row.key.player] = (
+                breakdown_sums.get(row.key.player, timedelta(0)) + row.duration
+            )
+
+        assert breakdown_sums.keys() == totals.keys()
+        for player, total in totals.items():
+            assert (
+                abs((breakdown_sums[player] - total).total_seconds()) < 1
+            ), f"{player}: breakdown sum {breakdown_sums[player]} != total {total}"
+
+    def test_minutes_played_breakdown_within_realistic_bounds(
+        self, abandoned_dataset
+    ):
+        """Every breakdown row must be non-negative and under 180 min."""
+        max_duration = timedelta(minutes=180)
+        for row in abandoned_dataset.aggregate(
+            "minutes_played", breakdown_key="possession_state"
+        ):
+            assert timedelta(0) <= row.duration <= max_duration, (
+                f"row out of range: {row.duration} "
+                f"{row.key.possession_state} "
+                f"{row.key.player or row.key.team}"
+            )
+
+
 class TestOptaCardEvent:
     """Tests related to deserialzing card events"""
 
