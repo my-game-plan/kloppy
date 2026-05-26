@@ -52,7 +52,7 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
 
         # Create teams and players
         with performance_logging("parse teams and players", logger=logger):
-            teams = self._create_teams_and_players(raw_data)
+            teams, players_by_raw_id = self._create_teams_and_players(raw_data)
 
         # Create periods
         with performance_logging("parse periods", logger=logger):
@@ -77,7 +77,7 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
 
             # Pre-process substitution events to pair SUBBED_OUT with SUBBED_IN
             substitution_pairs = self._pair_substitution_events(
-                raw_events, teams
+                raw_events, players_by_raw_id
             )
 
             for raw_event in raw_events:
@@ -101,6 +101,7 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
                     event_objects = self._create_events(
                         raw_event,
                         teams,
+                        players_by_raw_id,
                         periods,
                         substitution_pairs,
                         possession_team,
@@ -137,9 +138,22 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
 
     def _create_teams_and_players(
         self, raw_data: Dict[str, Any]
-    ) -> Dict[str, Team]:
-        """Create Team and Player objects from SciSports data"""
+    ) -> tuple[Dict[str, Team], Dict[str, Player]]:
+        """Create Team and Player objects from SciSports data.
+
+        SciSports team/player ids are integers scoped to a SciSports account
+        (one competition pool) and collide across accounts, so they are useless
+        as global identifiers. We therefore emit the *name* as the identifier
+        (``Team.team_id`` = team name, ``Player.player_id`` = player name), which
+        is globally stable and exactly the identity our downstream needs.
+
+        The internal ``teams`` dict stays keyed by the raw numeric team id and a
+        ``players_by_raw_id`` map (raw numeric player id -> Player) is returned
+        alongside it, so the raw ids in event rows can still be resolved to the
+        right Team/Player objects at lookup time.
+        """
         teams = {}
+        players_by_raw_id = {}
 
         # Get unique teams from metadata and players
         home_team_id = raw_data["metaData"]["homeTeamId"]
@@ -148,16 +162,18 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
         # Parse starting formations from FORMATION events
         starting_formations = self._parse_starting_formations(raw_data)
 
-        # Create teams with starting formations
+        # Create teams with starting formations.
+        # team_id is the team *name* (globally stable); the local dict below
+        # stays keyed by the raw numeric id for event resolution.
         home_team = Team(
-            team_id=str(home_team_id),
+            team_id=raw_data["metaData"]["homeTeamName"],
             name=raw_data["metaData"]["homeTeamName"],
             ground=Ground.HOME,
             starting_formation=starting_formations.get(str(home_team_id)),
         )
 
         away_team = Team(
-            team_id=str(away_team_id),
+            team_id=raw_data["metaData"]["awayTeamName"],
             name=raw_data["metaData"]["awayTeamName"],
             ground=Ground.AWAY,
             starting_formation=starting_formations.get(str(away_team_id)),
@@ -175,9 +191,13 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
         # Add players to teams
         for player_data in raw_data.get("players", []):
             team_id = str(player_data["teamId"])
-            player_id = str(player_data["playerId"])
+            # The raw numeric id is used only for internal resolution (starter
+            # detection, the players_by_raw_id map); the player *name* is the
+            # globally stable identity we expose as player_id.
+            raw_player_id = str(player_data["playerId"])
+            player_name = player_data.get("playerName")
             if team_id in teams:
-                is_starter = player_id in starting_players
+                is_starter = raw_player_id in starting_players
 
                 # Only use starting position from POSITION events if the player is a starter
                 # Otherwise, starting_position should be None for substitutes
@@ -185,23 +205,24 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
                 if is_starter:
                     # Use position from STARTING_POSITION events if available, otherwise fallback to player metadata
                     position_id = starting_positions.get(
-                        player_id, player_data.get("positionId", -1)
+                        raw_player_id, player_data.get("positionId", -1)
                     )
                     starting_position = SS.get_position_type(position_id)
 
                 player = Player(
-                    player_id=player_id,
+                    player_id=player_name,
                     team=teams[team_id],
                     jersey_no=player_data.get("shirtNumber"),
-                    name=player_data.get("playerName"),
+                    name=player_name,
                     first_name=None,
                     last_name=None,
                     starting=is_starter,
                     starting_position=starting_position,
                 )
                 teams[team_id].players.append(player)
+                players_by_raw_id[raw_player_id] = player
 
-        return teams
+        return teams, players_by_raw_id
 
     def _identify_starting_players(self, raw_data: Dict[str, Any]) -> set[str]:
         """Identify starting players by analyzing substitution events"""
@@ -354,7 +375,9 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
         return periods
 
     def _pair_substitution_events(
-        self, raw_events: List[Dict[str, Any]], teams: Dict[str, Team]
+        self,
+        raw_events: List[Dict[str, Any]],
+        players_by_raw_id: Dict[str, Player],
     ) -> Dict[str, Player]:
         """Pre-process substitution events to pair SUBBED_OUT with SUBBED_IN events"""
         substitution_pairs = (
@@ -402,18 +425,14 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
             # If we found a match, create the pairing
             if best_match:
                 replacement_player_id = str(best_match.get("playerId"))
-                team_id = str(best_match.get("teamId"))
-
-                if team_id in teams:
-                    team = teams[team_id]
-                    replacement_player = team.get_player_by_id(
-                        replacement_player_id
-                    )
-                    if replacement_player:
-                        substitution_pairs[
-                            str(out_event.get("eventId"))
-                        ] = replacement_player
-                        used_subbed_in_events.add(best_match.get("eventId"))
+                replacement_player = players_by_raw_id.get(
+                    replacement_player_id
+                )
+                if replacement_player:
+                    substitution_pairs[
+                        str(out_event.get("eventId"))
+                    ] = replacement_player
+                    used_subbed_in_events.add(best_match.get("eventId"))
 
         return substitution_pairs
 
@@ -421,6 +440,7 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
         self,
         raw_event: Dict[str, Any],
         teams: Dict[str, Team],
+        players_by_raw_id: Dict[str, Player],
         periods: list[Period],
         substitution_pairs: Dict[str, Player] = None,
         possession_team: Team = None,
@@ -434,7 +454,7 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
             return []
 
         # Set references to teams and periods
-        event_obj.set_refs(teams, periods, possession_team)
+        event_obj.set_refs(teams, players_by_raw_id, periods, possession_team)
 
         # Check if we have valid team and player
         if not event_obj.team:

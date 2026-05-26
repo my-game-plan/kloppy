@@ -264,8 +264,17 @@ class EVENT:
     def __init__(self, raw_event: Dict):
         self.raw_event = raw_event
 
-    def set_refs(self, teams, periods, possession_team=None):
-        """Set references to teams and periods"""
+    def set_refs(
+        self, teams, players_by_raw_id, periods, possession_team=None
+    ):
+        """Set references to teams and periods.
+
+        SciSports identifies teams/players by raw numeric ids that are only
+        unique within a SciSports account. Team/Player objects expose the
+        *name* as their identifier, so raw ids are resolved here via the
+        ``players_by_raw_id`` map (numeric id -> Player) rather than via
+        ``Team.get_player_by_id`` (which now keys on the name).
+        """
         from .helpers import get_team_by_id, get_period_by_id
 
         self.team = get_team_by_id(self.raw_event.get("teamId"), teams)
@@ -273,11 +282,10 @@ class EVENT:
             self.raw_event.get("partId", 1), periods
         )
         self.possession_team = possession_team
+        self.players_by_raw_id = players_by_raw_id
 
-        self.player = None
-        if self.team:
-            player_id = str(self.raw_event.get("playerId", -1))
-            self.player = self.team.get_player_by_id(player_id)
+        player_id = str(self.raw_event.get("playerId", -1))
+        self.player = players_by_raw_id.get(player_id)
 
         return self
 
@@ -490,15 +498,17 @@ class PASS(EVENT):
                 milliseconds=duration
             )
 
-        # Try to find receiver player
+        # Try to find receiver player. Only resolve same-team receivers, and
+        # compare against the raw numeric team id (Team.team_id is the name).
         receiver_player = None
         receiver_id = self.raw_event.get("receiverId")
         if receiver_id and receiver_id != -1:
-            team = generic_event_kwargs["team"]
-            # Check if receiver is on the same team
             receiver_team_id = self.raw_event.get("receiverTeamId")
-            if receiver_team_id and str(receiver_team_id) == str(team.team_id):
-                receiver_player = team.get_player_by_id(str(receiver_id))
+            event_team_id = self.raw_event.get("teamId")
+            if receiver_team_id and str(receiver_team_id) == str(
+                event_team_id
+            ):
+                receiver_player = self.players_by_raw_id.get(str(receiver_id))
 
         pass_event = event_factory.build_pass(
             result=result,
