@@ -84,6 +84,10 @@ class TestSciSportsMetadata:
         assert dataset.metadata.teams[0].name == "Team Alpha"
         assert dataset.metadata.teams[1].name == "Team Beta"
 
+        # Team ids are the team names (globally stable across SciSports accounts)
+        assert dataset.metadata.teams[0].team_id == "Team Alpha"
+        assert dataset.metadata.teams[1].team_id == "Team Beta"
+
         # The teams should have the correct players
         home_team = dataset.metadata.teams[0]
         away_team = dataset.metadata.teams[1]
@@ -92,12 +96,13 @@ class TestSciSportsMetadata:
         assert len(home_team.players) == 14
         assert len(away_team.players) == 14
 
-        # Check a specific player
-        player_116 = home_team.get_player_by_id("116")
-        assert player_116 is not None
-        assert player_116.player_id == "116"
-        assert player_116.jersey_no == 21
-        assert player_116.name == "Player 06"
+        # Check a specific player. SciSports ids collide across accounts, so
+        # the deserializer emits the player *name* as player_id.
+        player_06 = home_team.get_player_by_id("Player 06")
+        assert player_06 is not None
+        assert player_06.player_id == "Player 06"
+        assert player_06.jersey_no == 21
+        assert player_06.name == "Player 06"
 
     def test_starting_players(self, dataset):
         """It should correctly identify starting players vs substitutes"""
@@ -119,15 +124,15 @@ class TestSciSportsMetadata:
         assert len(away_subs) == 3
 
         # Check specific examples - players who were substituted out should be starters
-        # Player 09 (121) was substituted out, so should be a starter
-        player_121 = home_team.get_player_by_id("121")
-        assert player_121 is not None
-        assert player_121.starting
+        # Player 09 was substituted out, so should be a starter
+        player_09 = home_team.get_player_by_id("Player 09")
+        assert player_09 is not None
+        assert player_09.starting
 
-        # Player 18 (122) was substituted in, so should not be a starter
-        player_122 = home_team.get_player_by_id("122")
-        assert player_122 is not None
-        assert not player_122.starting
+        # Player 18 was substituted in, so should not be a starter
+        player_18 = home_team.get_player_by_id("Player 18")
+        assert player_18 is not None
+        assert not player_18.starting
 
     def test_periods(self, dataset):
         """It should create the periods"""
@@ -261,7 +266,7 @@ class TestSciSportsPassEvent:
         assert kick_off_pass.timestamp == timedelta(seconds=0.07)
 
         assert kick_off_pass.receiver_coordinates == Point(x=-13.65, y=0.68)
-        assert kick_off_pass.receiver_player.player_id == "124"
+        assert kick_off_pass.receiver_player.player_id == "Player 15"
 
     def test_pass_result_checks(self, dataset: EventDataset):
         """Test pass result types (complete/incomplete)"""
@@ -551,8 +556,8 @@ class TestSciSportsSubstitutionEvent:
         player_off = sub_event.player
         player_on = sub_event.replacement_player
 
-        assert player_off.player_id == "121"
-        assert player_on.player_id == "122"
+        assert player_off.player_id == "Player 09"
+        assert player_on.player_id == "Player 18"
 
         assert sub_event.time.period.id == 2
         assert sub_event.time.timestamp == timedelta(0)
