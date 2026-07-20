@@ -405,9 +405,7 @@ class TestKoraStatsTackleEvent:
     See TAS-2898.
     """
 
-    def test_tackle_success_is_defending_duel_won(
-        self, dataset: EventDataset
-    ):
+    def test_tackle_success_is_defending_duel_won(self, dataset: EventDataset):
         # _id=144880593, event_id=33, result_id=10 → defender won
         event = dataset.get_event_by_id("144880593")
         assert event.event_type == EventType.DUEL
@@ -518,6 +516,50 @@ class TestKoraStatsSubstitutionEvent:
         #     assert event.replacement_player == event.team.get_player_by_id(
         #         replacement_player_id
         #     )
+
+    def test_pair_bracketed_substitutions(self):
+        """It should pair out/in even when the pairs are not adjacent.
+
+        KoraStats brackets substitution pairs when both teams sub at the same
+        stoppage: two SubstituteOut events emit before their SubstituteIn
+        events, so an out/in pair is no longer adjacent.
+        """
+        from kloppy.infra.serializers.event.korastats.deserializer import (
+            KoraStatsDeserializer,
+        )
+
+        # team 1's out (idx 0) brackets team 2's adjacent pair; its matching
+        # in is at idx 3.
+        raw_events = [
+            {
+                "extra": "SubstituteOut",
+                "team_id": 1,
+                "half": 2,
+                "player_id": 10,
+            },
+            {
+                "extra": "SubstituteOut",
+                "team_id": 2,
+                "half": 2,
+                "player_id": 20,
+            },
+            {
+                "extra": "SubstituteIn",
+                "team_id": 2,
+                "half": 2,
+                "player_id": 21,
+            },
+            {
+                "extra": "SubstituteIn",
+                "team_id": 1,
+                "half": 2,
+                "player_id": 11,
+            },
+        ]
+        KoraStatsDeserializer.pair_substitutions(raw_events)
+
+        assert raw_events[0]["_replacement_player_id"] == 11
+        assert raw_events[1]["_replacement_player_id"] == 21
 
 
 class TestKoraStatsFoulCommittedEvent:
