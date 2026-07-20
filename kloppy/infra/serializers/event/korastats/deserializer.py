@@ -99,6 +99,7 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
             event_data = json.load(inputs.event_data)
 
         raw_events = event_data["events"]
+        self.pair_substitutions(raw_events)
 
         with performance_logging("parse data", logger=logger):
             teams = self.create_teams_and_players(metadata)
@@ -182,6 +183,39 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
         away_team = create_team(metadata["away"], Ground.AWAY)
 
         return [home_team, away_team]
+
+    @staticmethod
+    def pair_substitutions(raw_events: List[Dict]) -> None:
+        """Annotate each SubstituteOut with its replacement player id.
+
+        KoraStats emits a separate SubstituteOut and SubstituteIn event per
+        substitution. They are usually adjacent, but when both teams sub at the
+        same stoppage the pairs get bracketed (two SubstituteOut events before
+        their SubstituteIn events), so the out/in pair is no longer adjacent.
+        Pair each out with the nearest unconsumed in of the same team in the
+        same half and store the replacement on the out event, so the
+        deserializer never has to rely on adjacency.
+        """
+        sub_ins_by_team = collections.defaultdict(list)
+        for ix, event in enumerate(raw_events):
+            if event.get("extra") == "SubstituteIn":
+                sub_ins_by_team[event.get("team_id")].append(ix)
+
+        consumed = set()
+        for ix, event in enumerate(raw_events):
+            if event.get("extra") != "SubstituteOut":
+                continue
+            best = None
+            for j in sub_ins_by_team.get(event.get("team_id"), []):
+                if j in consumed or raw_events[j].get("half") != event.get(
+                    "half"
+                ):
+                    continue
+                if best is None or abs(j - ix) < abs(best - ix):
+                    best = j
+            if best is not None:
+                consumed.add(best)
+                event["_replacement_player_id"] = raw_events[best]["player_id"]
 
     @staticmethod
     def create_periods(raw_events: List[Dict]) -> List[Period]:

@@ -765,18 +765,30 @@ class SUBSTITUTION(EVENT):
         if self.extra == EXTRA.SUBSTITUTE_IN:
             return []
 
-        if next_event.get("extra") == "SubstituteIn":
+        # The deserializer pre-pairs each SubstituteOut with the matching
+        # SubstituteIn of the same team (see pair_substitutions), which handles
+        # both adjacent and bracketed pairs. Fall back to the adjacent events
+        # for robustness.
+        replacement_player_id = self.raw_event.get("_replacement_player_id")
+        if (
+            replacement_player_id is None
+            and next_event
+            and next_event.get("extra") == "SubstituteIn"
+        ):
             replacement_player_id = next_event["player_id"]
-            replacement_player = self.team.get_player_by_id(
-                str(replacement_player_id)
-            )
-        elif prior_event.get("extra") == "SubstituteIn":
+        if (
+            replacement_player_id is None
+            and prior_event
+            and prior_event.get("extra") == "SubstituteIn"
+        ):
             replacement_player_id = prior_event["player_id"]
-            replacement_player = self.team.get_player_by_id(
-                str(replacement_player_id)
-            )
-        else:
+
+        if replacement_player_id is None:
             raise ValueError("Substitution event without replacement player")
+
+        replacement_player = self.team.get_player_by_id(
+            str(replacement_player_id)
+        )
 
         sub_event = event_factory.build_substitution(
             result=None,
