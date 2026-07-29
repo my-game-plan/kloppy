@@ -38,6 +38,7 @@ class FormationType(Enum):
         FOUR_FOUR_TWO (str):
         FOUR_FIVE_ONE (str):
         FIVE_TWO_TWO_ONE (str):
+        FIVE_TWO_THREE (str):
         FIVE_THREE_TWO (str):
         FIVE_FOUR_ONE (str):
 
@@ -82,6 +83,7 @@ class FormationType(Enum):
     FIVE_ONE_THREE_ONE = "5-1-3-1"
     FIVE_TWO_ONE_TWO = "5-2-1-2"
     FIVE_TWO_TWO_ONE = "5-2-2-1"
+    FIVE_TWO_THREE = "5-2-3"
     FIVE_THREE_TWO = "5-3-2"
     FIVE_FOUR_ONE = "5-4-1"
     UNKNOWN = "Unknown"

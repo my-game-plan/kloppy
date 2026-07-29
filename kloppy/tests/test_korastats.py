@@ -1,5 +1,7 @@
+import json
 from collections import defaultdict
 from datetime import timedelta
+from io import BytesIO
 from typing import cast
 
 import pytest
@@ -28,6 +30,10 @@ from kloppy.domain import (
     Time,
 )
 from kloppy.domain.models import PositionType
+from kloppy.infra.serializers.event.korastats.deserializer import (
+    parse_formation,
+    parse_starting_formations,
+)
 from kloppy.domain.models.event import (
     EventType,
     GoalkeeperActionType,
@@ -42,6 +48,12 @@ def dataset(base_dir) -> EventDataset:
     dataset = korastats.load(
         event_data=base_dir / "files" / "korastats_events.json",
         squads_data=base_dir / "files" / "korastats_squads.json",
+        home_formation_data=base_dir
+        / "files"
+        / "korastats_formation_home.json",
+        away_formation_data=base_dir
+        / "files"
+        / "korastats_formation_away.json",
         coordinates="korastats",
     )
 
@@ -69,13 +81,13 @@ class TestKoraStatsMetadata:
         """It should create the teams and player objects"""
         # There should be two teams with the correct names and starting formations
         assert dataset.metadata.teams[0].team_id == "10107"
-        # assert dataset.metadata.teams[0].starting_formation == FormationType(
-        #     "4-3-3"
-        # )
+        assert dataset.metadata.teams[0].starting_formation == FormationType(
+            "4-3-3"
+        )
         assert dataset.metadata.teams[1].team_id == "23109"
-        # assert dataset.metadata.teams[1].starting_formation == FormationType(
-        #     "5-3-2"
-        # )
+        assert dataset.metadata.teams[1].starting_formation == FormationType(
+            "4-3-3"
+        )
 
         # The teams should have the correct players
         player = dataset.metadata.teams[0].get_player_by_id("194622")
@@ -577,6 +589,70 @@ class TestKoraStatsRecoveryEvent:
     def test_deserialize_recoveries(self, dataset: EventDataset):
         events = dataset.find_all("recovery")
         assert len(events) == 157
+
+
+class TestKoraStatsFormation:
+    """Tests related to deserializing the MatchFormation feeds"""
+
+    @pytest.mark.parametrize(
+        "raw_formation,expected",
+        [
+            ("1-433", FormationType("4-3-3")),
+            ("1-442", FormationType("4-4-2")),
+            ("1-4240", FormationType("4-2-4-0")),
+            ("1-523", FormationType("5-2-3")),
+            ("1-541", FormationType("5-4-1")),
+            # Partial strings: fewer or more than ten outfield players
+            ("1-53", FormationType.UNKNOWN),
+            ("1-5301", FormationType.UNKNOWN),
+            ("1-4331", FormationType.UNKNOWN),
+            # A second goalkeeper is not a formation
+            ("2-423", FormationType.UNKNOWN),
+            # Missing values
+            (" - ", FormationType.UNKNOWN),
+            ("", FormationType.UNKNOWN),
+            (None, FormationType.UNKNOWN),
+        ],
+    )
+    def test_parse_formation(self, raw_formation, expected):
+        """It should read the goalkeeper-first formation strings"""
+        assert parse_formation(raw_formation) == expected
+
+    def test_keys_formations_by_team_id(self):
+        """It should key each feed by its own team id, not by argument order"""
+        home_feed = BytesIO(
+            json.dumps(
+                {"teamId": 10107, "startingLineupFormation": "1-433"}
+            ).encode()
+        )
+        away_feed = BytesIO(
+            json.dumps(
+                {"teamId": 23109, "startingLineupFormation": "1-532"}
+            ).encode()
+        )
+
+        # Pass the away feed first to prove the order does not matter
+        assert parse_starting_formations([away_feed, home_feed]) == {
+            "10107": FormationType("4-3-3"),
+            "23109": FormationType("5-3-2"),
+        }
+
+    def test_without_formation_data(self, base_dir):
+        """It should fall back to an unknown formation when the feeds are absent"""
+        dataset = korastats.load(
+            event_data=base_dir / "files" / "korastats_events.json",
+            squads_data=base_dir / "files" / "korastats_squads.json",
+            coordinates="korastats",
+        )
+
+        assert (
+            dataset.metadata.teams[0].starting_formation
+            == FormationType.UNKNOWN
+        )
+        assert (
+            dataset.metadata.teams[1].starting_formation
+            == FormationType.UNKNOWN
+        )
 
 
 def test_add_synthetic_event(dataset: EventDataset):
