@@ -3,7 +3,7 @@ import json
 import warnings
 from collections import OrderedDict
 from dataclasses import replace
-from typing import Dict, List, NamedTuple, IO, Tuple
+from typing import Dict, List, NamedTuple, IO, Optional, Tuple
 from datetime import timedelta, datetime
 import logging
 
@@ -80,9 +80,69 @@ position_types_mapping: Dict[str, PositionType] = {
 }
 
 
+def parse_formation(raw_formation: Optional[str]) -> FormationType:
+    """Convert a KoraStats formation string into a `FormationType`.
+
+    KoraStats writes formations goalkeeper-first and without separators, so
+    "1-433" is a 4-3-3 and "1-4240" a 4-2-4-0. Strings that do not describe a
+    goalkeeper plus ten outfield players are treated as missing, since the
+    provider also emits partial ones (e.g. "1-53", " - ").
+    """
+    if not raw_formation:
+        return FormationType.UNKNOWN
+
+    lines = raw_formation.strip()
+    if not lines.startswith("1-"):
+        logger.warning(f"Unexpected KoraStats formation {raw_formation!r}")
+        return FormationType.UNKNOWN
+
+    lines = lines[2:]
+    if not lines.isdigit() or sum(int(line) for line in lines) != 10:
+        logger.warning(
+            f"KoraStats formation {raw_formation!r} does not describe eleven players"
+        )
+        return FormationType.UNKNOWN
+
+    try:
+        return FormationType("-".join(lines))
+    except ValueError:
+        logger.warning(f"Unknown KoraStats formation {raw_formation!r}")
+        return FormationType.UNKNOWN
+
+
+def parse_starting_formations(
+    formation_data: List[Optional[IO[bytes]]],
+) -> Dict[str, FormationType]:
+    """Map team id to starting formation from the MatchFormation feeds.
+
+    Each feed covers a single team and names it, so the formations are keyed by
+    team id rather than by the order in which the feeds were passed in.
+    """
+    starting_formations = {}
+    for formation_data_fp in formation_data:
+        if formation_data_fp is None:
+            continue
+
+        formation = json.load(formation_data_fp)
+        team_id = formation.get("teamId")
+        if team_id is None:
+            logger.warning(
+                "Skipping KoraStats formation feed without a team id"
+            )
+            continue
+
+        starting_formations[str(team_id)] = parse_formation(
+            formation.get("startingLineupFormation")
+        )
+
+    return starting_formations
+
+
 class KoraStatsInputs(NamedTuple):
     event_data: IO[bytes]
     meta_data: IO[bytes]
+    home_formation_data: Optional[IO[bytes]] = None
+    away_formation_data: Optional[IO[bytes]] = None
 
 
 class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
@@ -102,7 +162,12 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
         self.pair_substitutions(raw_events)
 
         with performance_logging("parse data", logger=logger):
-            teams = self.create_teams_and_players(metadata)
+            starting_formations = parse_starting_formations(
+                [inputs.home_formation_data, inputs.away_formation_data]
+            )
+            teams = self.create_teams_and_players(
+                metadata, starting_formations
+            )
 
         # Create periods
         with performance_logging("parse periods", logger=logger):
@@ -146,15 +211,22 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
         return dataset
 
     @staticmethod
-    def create_teams_and_players(metadata: Dict) -> List[Team]:
+    def create_teams_and_players(
+        metadata: Dict,
+        starting_formations: Optional[Dict[str, FormationType]] = None,
+    ) -> List[Team]:
+        starting_formations = starting_formations or {}
+
         def create_team(team_info: Dict, ground: Ground) -> Team:
-            starting_formation = FormationType.UNKNOWN
+            team_id = str(team_info["team"]["id"])
 
             team = Team(
-                team_id=str(team_info["team"]["id"]),
+                team_id=team_id,
                 name=team_info["team"]["name"],
                 ground=ground,
-                starting_formation=starting_formation,
+                starting_formation=starting_formations.get(
+                    team_id, FormationType.UNKNOWN
+                ),
             )
 
             players = []
@@ -168,9 +240,11 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
                         team=team,
                         name=player_info["name"],
                         jersey_no=player_info["shirt_number"],
-                        starting_position=starting_position
-                        if player_info["lineup"]
-                        else None,
+                        starting_position=(
+                            starting_position
+                            if player_info["lineup"]
+                            else None
+                        ),
                         starting=True if player_info["lineup"] else False,
                     )
                 )
