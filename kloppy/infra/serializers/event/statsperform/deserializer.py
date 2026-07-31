@@ -64,6 +64,12 @@ EVENT_TYPE_OFFSIDE_PROVOKED = 55
 # routine in-play delays (injuries, VAR) so only true match suspensions trigger.
 SUSPENSION_GAP_THRESHOLD = timedelta(minutes=15)
 
+# Qualifier 374 carries an absolute wall-clock time of its own (the actual time of
+# the shot on goal events) and overrides the event timestamp downstream, so it has
+# to be shifted alongside it when a suspension gap is normalized.
+EVENT_QUALIFIER_GOAL_TIMESTAMP = 374
+GOAL_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
+
 EVENT_TYPE_PASS = 1
 EVENT_TYPE_OFFSIDE_PASS = 2
 EVENT_TYPE_TAKE_ON = 3
@@ -805,6 +811,11 @@ def _normalize_suspension_gaps(raw_events: List[OptaEvent]) -> None:
     consecutive events exceeds the game-clock delta by more than
     `SUSPENSION_GAP_THRESHOLD`. The END_PERIOD event is included in the walk,
     so `period.end_timestamp` (set later from that event) is also corrected.
+
+    Goal events carry a second, independent wall-clock time in qualifier 374 that
+    overrides the event timestamp during deserialization. It is shifted by the same
+    amount, otherwise a goal scored after a suspension keeps its raw wall-clock time
+    and lands the length of the suspension ahead of its neighbours in the timeline.
     """
     shift_per_period: Dict[int, timedelta] = {}
     prev_per_period: Dict[int, OptaEvent] = {}
@@ -813,6 +824,7 @@ def _normalize_suspension_gaps(raw_events: List[OptaEvent]) -> None:
         shift = shift_per_period.get(period_id, timedelta(0))
         if shift:
             raw_event.timestamp -= shift
+            _shift_goal_timestamp_qualifier(raw_event, shift)
         prev = prev_per_period.get(period_id)
         if prev is not None:
             wall_delta = raw_event.timestamp - prev.timestamp
@@ -837,8 +849,34 @@ def _normalize_suspension_gaps(raw_events: List[OptaEvent]) -> None:
                     raw_event.time_sec,
                 )
                 raw_event.timestamp -= excess
+                _shift_goal_timestamp_qualifier(raw_event, excess)
                 shift_per_period[period_id] = shift + excess
         prev_per_period[period_id] = raw_event
+
+
+def _shift_goal_timestamp_qualifier(
+    raw_event: OptaEvent, shift: timedelta
+) -> None:
+    """Shift the absolute time in qualifier 374 back by `shift`, if present."""
+    raw_value = (raw_event.qualifiers or {}).get(
+        EVENT_QUALIFIER_GOAL_TIMESTAMP
+    )
+    if not raw_value:
+        return
+    try:
+        shifted = datetime.strptime(raw_value, GOAL_TIMESTAMP_FORMAT) - shift
+    except ValueError:
+        logger.warning(
+            "Could not parse qualifier %s value %r on event %s; leaving it "
+            "unshifted across the suspension gap.",
+            EVENT_QUALIFIER_GOAL_TIMESTAMP,
+            raw_value,
+            raw_event.id,
+        )
+        return
+    raw_event.qualifiers[EVENT_QUALIFIER_GOAL_TIMESTAMP] = shifted.strftime(
+        GOAL_TIMESTAMP_FORMAT
+    )
 
 
 class StatsPerformInputs(NamedTuple):
@@ -1010,12 +1048,17 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                         EVENT_TYPE_SHOT_GOAL,
                     ):
                         if raw_event.type_id == EVENT_TYPE_SHOT_GOAL:
-                            if 374 in raw_event.qualifiers:
+                            if (
+                                EVENT_QUALIFIER_GOAL_TIMESTAMP
+                                in raw_event.qualifiers
+                            ):
                                 # Qualifier 374 specifies the actual time of the shot for all goal events
                                 # It uses London timezone for both MA3 and F24 feeds
                                 naive_datetime = datetime.strptime(
-                                    raw_event.qualifiers[374],
-                                    "%Y-%m-%d %H:%M:%S.%f",
+                                    raw_event.qualifiers[
+                                        EVENT_QUALIFIER_GOAL_TIMESTAMP
+                                    ],
+                                    GOAL_TIMESTAMP_FORMAT,
                                 )
                                 timezone = pytz.timezone("Europe/London")
                                 aware_datetime = timezone.localize(

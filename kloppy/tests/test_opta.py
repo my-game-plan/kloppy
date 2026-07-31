@@ -37,7 +37,9 @@ from kloppy.domain import (
 from kloppy import opta
 from kloppy.infra.serializers.event.statsperform.deserializer import (
     _get_end_coordinates,
+    _normalize_suspension_gaps,
 )
+from kloppy.infra.serializers.event.statsperform.parsers.base import OptaEvent
 from kloppy.infra.serializers.event.statsperform.parsers.f24_xml import (
     _parse_f24_datetime,
 )
@@ -610,6 +612,85 @@ class TestOptaAbandonment:
                 f"{row.key.possession_state} "
                 f"{row.key.player or row.key.team}"
             )
+
+    def test_goal_timestamp_qualifier_is_shifted_with_the_event(self):
+        """Qualifier 374 must move with the event timestamp across a suspension.
+
+        Goal events override their timestamp with qualifier 374, which carries an
+        absolute wall-clock time of its own. Leaving it unshifted strands a goal
+        scored after the suspension by the length of the suspension, which drives
+        the possession-state breakdown negative (NWSL Utah Royals - Washington
+        Spirit, 2026-07-30, suspended 1h20m in the first half).
+        """
+        kickoff = datetime(2026, 7, 30, 2, 8, 34)
+        gap = timedelta(minutes=80)
+
+        def raw_event(event_id, minute, second, timestamp, qualifiers=None):
+            return OptaEvent(
+                id=event_id,
+                event_id=int(event_id),
+                type_id=1,
+                period_id=1,
+                time_min=minute,
+                time_sec=second,
+                x=50.0,
+                y=50.0,
+                timestamp=timestamp,
+                last_modified=timestamp,
+                qualifiers=qualifiers or {},
+            )
+
+        before_gap = raw_event(
+            "1", 23, 41, kickoff + timedelta(minutes=23, seconds=41)
+        )
+        after_gap = raw_event(
+            "2", 23, 41, kickoff + timedelta(minutes=23, seconds=41) + gap
+        )
+        goal_timestamp = kickoff + timedelta(minutes=27, seconds=41) + gap
+        goal = raw_event(
+            "3",
+            27,
+            41,
+            goal_timestamp,
+            {374: goal_timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")},
+        )
+
+        _normalize_suspension_gaps([before_gap, after_gap, goal])
+
+        assert goal.timestamp == kickoff + timedelta(minutes=27, seconds=41)
+        assert (
+            datetime.strptime(goal.qualifiers[374], "%Y-%m-%d %H:%M:%S.%f")
+            == goal.timestamp
+        )
+
+    def test_events_without_the_goal_qualifier_are_untouched(self):
+        """A shift on a non-goal event must not invent a qualifier 374."""
+        kickoff = datetime(2026, 7, 30, 2, 8, 34)
+        gap = timedelta(minutes=80)
+
+        def raw_event(event_id, minute, second, timestamp):
+            return OptaEvent(
+                id=event_id,
+                event_id=int(event_id),
+                type_id=1,
+                period_id=1,
+                time_min=minute,
+                time_sec=second,
+                x=50.0,
+                y=50.0,
+                timestamp=timestamp,
+                last_modified=timestamp,
+            )
+
+        before_gap = raw_event("1", 10, 0, kickoff + timedelta(minutes=10))
+        after_gap = raw_event(
+            "2", 10, 0, kickoff + timedelta(minutes=10) + gap
+        )
+
+        _normalize_suspension_gaps([before_gap, after_gap])
+
+        assert after_gap.timestamp == kickoff + timedelta(minutes=10)
+        assert after_gap.qualifiers == {}
 
 
 class TestOptaCardEvent:
