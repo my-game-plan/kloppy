@@ -53,6 +53,7 @@ class EVENT_CATEGORY_TYPE(Enum):
     GOALKEEPER_PENALTY = (2, 8)
     GOALKEEPER_ONE_ON_ONE = (2, 9)
     GOALKEEPER_SHOOT = (2, 10)
+    GOALKEEPER_PENALTY_SHOOT_OUT = (2, 46)
     GOALKEEPER_OWN_GOAL_CONCEDED = (2, 49)
 
     # Defensive events
@@ -948,7 +949,9 @@ def event_decoder(raw_event: Dict) -> Optional[EVENT]:
         EVENT_CATEGORY_TYPE.GOALKEEPER_PENALTY: GOALKEEPER,
         EVENT_CATEGORY_TYPE.GOALKEEPER_ONE_ON_ONE: GOALKEEPER,
         EVENT_CATEGORY_TYPE.GOALKEEPER_SHOOT: GOALKEEPER,
-        # EVENT_CATEGORY_TYPE.GOALKEEPER_PENALTY_SHOOT_OUT: None,
+        # Penalty shootouts are not part of the event model (period 5 is
+        # excluded downstream); skip the kicks/saves at decode time.
+        EVENT_CATEGORY_TYPE.GOALKEEPER_PENALTY_SHOOT_OUT: None,
         EVENT_CATEGORY_TYPE.GOALKEEPER_OWN_GOAL_CONCEDED: OWN_GOAL,
         # Defensive events
         EVENT_CATEGORY_TYPE.DEFENSIVE_BLOCK: BLOCK,
@@ -992,7 +995,7 @@ def event_decoder(raw_event: Dict) -> Optional[EVENT]:
         EVENT_CATEGORY_TYPE.ATTACK_FREEKICK: SHOT,
         EVENT_CATEGORY_TYPE.ATTACK_OWN_GOAL_IN_OPPONENT: None,
         EVENT_CATEGORY_TYPE.ATTACK_SHOOT_LOCATION: None,
-        # ATTACK_PENALTY_SHOOTOUT = "PenaltyShootOut"
+        EVENT_CATEGORY_TYPE.ATTACK_PENALTY_SHOOTOUT: None,
         # Ball actions
         EVENT_CATEGORY_TYPE.BALL_ACTIONS_BALL_PAST_LINE: BALL_OUT,
     }
