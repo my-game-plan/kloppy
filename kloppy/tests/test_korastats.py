@@ -143,6 +143,15 @@ class TestKoraStatsMetadata:
         assert len(dataset.metadata.periods) == 2
         assert dataset.metadata.periods[0].id == 1
 
+    def test_wing_back_positions(self):
+        """Squads with wing backs (back-three lineups) should deserialize"""
+        from kloppy.infra.serializers.event.korastats.deserializer import (
+            position_types_mapping,
+        )
+
+        assert position_types_mapping["LWB"] == PositionType.LeftWingBack
+        assert position_types_mapping["RWB"] == PositionType.RightWingBack
+
 
 class TestKoraStatsEvent:
     """Generic tests related to deserializing events"""

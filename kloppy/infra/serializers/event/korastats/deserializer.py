@@ -60,6 +60,8 @@ position_types_mapping: Dict[str, PositionType] = {
     "CB": PositionType.CenterBack,
     "RCB": PositionType.RightCenterBack,
     "RB": PositionType.RightBack,
+    "LWB": PositionType.LeftWingBack,
+    "RWB": PositionType.RightWingBack,
     "LDM": PositionType.LeftDefensiveMidfield,
     "DM": PositionType.CenterDefensiveMidfield,
     "RDM": PositionType.RightDefensiveMidfield,
