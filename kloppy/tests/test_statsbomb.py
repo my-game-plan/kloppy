@@ -812,7 +812,9 @@ class TestStatsBombInterceptionEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should deserialize all interception events"""
         events = dataset.find_all("interception")
-        assert len(events) == 25 + 9 + 37 # interceptions + pass interceptions + blocks
+        assert (
+            len(events) == 25 + 9 + 37
+        )  # interceptions + pass interceptions + blocks
 
     def test_attributes(self, dataset: EventDataset):
         """Verify specific attributes of interceptions"""
@@ -858,9 +860,7 @@ class TestStatsBombOwnGoalEvent:
             event_data=base_dir / "files" / "statsbomb_event.json",
         )
 
-        source_shot = dataset.get_event_by_id(
-            "89dd4f4b-0a70-48d8-a0e7-ac4c"
-        )
+        source_shot = dataset.get_event_by_id("89dd4f4b-0a70-48d8-a0e7-ac4c")
         assert source_shot is not None
         assert source_shot.result == ShotResult.OWN_GOAL
 
@@ -917,23 +917,36 @@ class TestStatsBombBlockEvent:
     def test_deserialize_all(self, dataset: EventDataset):
         """It should convert all block events into interceptions"""
         events = dataset.find_all("interception")
-        assert len(events) == 25 + 9 + 37 # interceptions + pass interceptions + blocks
+        assert (
+            len(events) == 25 + 9 + 37
+        )  # interceptions + pass interceptions + blocks
 
     def test_attributes(self, dataset: EventDataset):
         """Verify specific attributes of converted blocks"""
-        interception = dataset.get_event_by_id("308ef2a5-f649-473d-8230-6ac20ccd0b4a")
+        interception = dataset.get_event_by_id(
+            "308ef2a5-f649-473d-8230-6ac20ccd0b4a"
+        )
         # Should have interception type qualifier PASS_BLOCK
-        assert interception.get_qualifier_value(InterceptionQualifier) == InterceptionType.PASS_BLOCK
+        assert (
+            interception.get_qualifier_value(InterceptionQualifier)
+            == InterceptionType.PASS_BLOCK
+        )
         assert interception.result == InterceptionResult.LOST
 
     def test_shot_block_vs_pass_block_counts(self, dataset: EventDataset):
         """Test that the correct number of shot/pass block interceptions are identified"""
         interceptions = dataset.find_all("interception")
         shot_blocks = [
-            e for e in interceptions if e.get_qualifier_value(InterceptionQualifier) == InterceptionType.SHOT_BLOCK
+            e
+            for e in interceptions
+            if e.get_qualifier_value(InterceptionQualifier)
+            == InterceptionType.SHOT_BLOCK
         ]
         pass_blocks = [
-            e for e in interceptions if e.get_qualifier_value(InterceptionQualifier) == InterceptionType.PASS_BLOCK
+            e
+            for e in interceptions
+            if e.get_qualifier_value(InterceptionQualifier)
+            == InterceptionType.PASS_BLOCK
         ]
         assert len(shot_blocks) == 7
         assert len(pass_blocks) == 30
@@ -1319,3 +1332,23 @@ class TestStatsBombTacticalShiftEvent:
                 PositionType.LeftMidfield,
             )
         ]
+
+
+class TestStatsBombFormations:
+    """Tests related to the StatsBomb formation code mapping"""
+
+    def test_all_numeric_formations_are_mapped(self):
+        """Every numeric FormationType should have a StatsBomb code
+
+        StatsBomb encodes a formation as the digits of the shape concatenated
+        into an int (3-3-3-1 -> 3331). A code missing from FORMATIONS raises a
+        KeyError that aborts the whole match, not just the one Tactical Shift,
+        so the mapping has to stay in sync with the enum.
+        """
+        for formation in FormationType:
+            if not formation.value.replace("-", "").isdigit():
+                continue
+            code = int(formation.value.replace("-", ""))
+            assert (
+                SB.FORMATIONS.get(code) == formation
+            ), f"{formation.value} is not mapped to StatsBomb code {code}"

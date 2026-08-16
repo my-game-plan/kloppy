@@ -74,6 +74,8 @@ class Version(NamedTuple):
 
 
 FORMATIONS = {
+    31213: FormationType.THREE_ONE_TWO_ONE_THREE,
+    31312: FormationType.THREE_ONE_THREE_ONE_TWO,
     3142: FormationType.THREE_ONE_FOUR_TWO,
     312112: FormationType.THREE_ONE_TWO_ONE_ONE_TWO,
     31222: FormationType.THREE_ONE_TWO_TWO_TWO,
@@ -82,6 +84,8 @@ FORMATIONS = {
     32221: FormationType.THREE_TWO_TWO_TWO_ONE,
     3232: FormationType.THREE_TWO_THREE_TWO,
     3322: FormationType.THREE_THREE_TWO_TWO,
+    3241: FormationType.THREE_TWO_FOUR_ONE,
+    3331: FormationType.THREE_THREE_THREE_ONE,
     3412: FormationType.THREE_FOUR_ONE_TWO,
     3421: FormationType.THREE_FOUR_TWO_ONE,
     343: FormationType.THREE_FOUR_THREE,
@@ -97,13 +101,18 @@ FORMATIONS = {
     42211: FormationType.FOUR_TWO_TWO_ONE_ONE,
     4222: FormationType.FOUR_TWO_TWO_TWO,
     4231: FormationType.FOUR_TWO_THREE_ONE,
+    4240: FormationType.FOUR_TWO_FOUR_ZERO,
     4312: FormationType.FOUR_THREE_ONE_TWO,
     4321: FormationType.FOUR_THREE_TWO_ONE,
     433: FormationType.FOUR_THREE_THREE,
     4411: FormationType.FOUR_FOUR_ONE_ONE,
     442: FormationType.FOUR_FOUR_TWO,
     451: FormationType.FOUR_FIVE_ONE,
+    5122: FormationType.FIVE_ONE_TWO_TWO,
+    5131: FormationType.FIVE_ONE_THREE_ONE,
+    5212: FormationType.FIVE_TWO_ONE_TWO,
     5221: FormationType.FIVE_TWO_TWO_ONE,
+    523: FormationType.FIVE_TWO_THREE,
     532: FormationType.FIVE_THREE_TWO,
     541: FormationType.FIVE_FOUR_ONE,
 }
@@ -794,9 +803,14 @@ class BLOCK(EVENT):
         qualifiers = []
 
         # Convert to Interception subtype
-        shot_block = any(isinstance(related_event, SHOT) for related_event in self.related_events)
+        shot_block = any(
+            isinstance(related_event, SHOT)
+            for related_event in self.related_events
+        )
         interception_type = (
-            InterceptionType.SHOT_BLOCK if shot_block else InterceptionType.PASS_BLOCK
+            InterceptionType.SHOT_BLOCK
+            if shot_block
+            else InterceptionType.PASS_BLOCK
         )
         qualifiers.append(InterceptionQualifier(value=interception_type))
 
@@ -804,7 +818,11 @@ class BLOCK(EVENT):
         body_part_qualifiers = _get_body_part_qualifiers(block_dict)
         qualifiers.extend(body_part_qualifiers)
 
-        result = InterceptionResult.OUT if self.raw_event.get("out", False) else InterceptionResult.LOST
+        result = (
+            InterceptionResult.OUT
+            if self.raw_event.get("out", False)
+            else InterceptionResult.LOST
+        )
         interception_event = event_factory.build_interception(
             result=result,
             qualifiers=qualifiers,
