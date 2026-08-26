@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -991,6 +992,243 @@ class TestSmrtStatsCreatePeriods:
             == []
         )
 
+    def test_half_time_stamped_after_the_restart(self):
+        """HALF_TIME arriving after SECOND_HALF still ends the first half.
+
+        SmrtStats does not guarantee that HALF_TIME (74) precedes the
+        SECOND_HALF (75) marker it pairs with. Matches 683623
+        (Lens-Nantes), 687100 (Cesena-Padova) and 686513 (Cardiff-Bolton)
+        stamp it 1-7 seconds later. Because there is only one HALF_TIME in
+        the file, reading it as the second half's end collapsed P2 to a
+        couple of seconds and pushed the real second half into a phantom
+        shootout period.
+        """
+        raw = {
+            "first_half_markers": [
+                {"action_id": 1, "second": 0.0},
+                {"action_id": 2, "second": 100.0},
+                {"action_id": 2, "second": 2758.0},
+                {"action_id": 75, "second": 2760.0},
+            ],
+            "second_half_markers": [
+                {"action_id": 74, "second": 2761.0},
+                {"action_id": 2, "second": 2762.0},
+                {"action_id": 2, "second": 5700.0},
+                {"action_id": 89, "second": 5785.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2]
+        assert periods[0].start_timestamp == timedelta(seconds=0)
+        assert periods[0].end_timestamp == timedelta(seconds=2760)
+        assert periods[1].start_timestamp == timedelta(seconds=2760)
+        assert periods[1].end_timestamp == timedelta(seconds=5785)
+
+    def test_half_time_stamped_after_the_restart_with_trailing_play(self):
+        """The first half's last touches may share the restart's second.
+
+        Match 683623 stamps three first-half events (a duel, a misplaced
+        pass and a substitution) at 2760.0, the same second as the
+        SECOND_HALF marker, with HALF_TIME at 2761.0. So "no markers at
+        all between the restart and HALF_TIME" is too strict a test -- the
+        question is whether any *play* happened strictly between them.
+        """
+        raw = {
+            "first_half_markers": [
+                {"action_id": 1, "second": 0.0},
+                {"action_id": 2, "second": 100.0},
+                {"action_id": 75, "second": 2760.0},
+                {"action_id": 11, "second": 2760.0},
+                {"action_id": 77, "second": 2760.0},
+                {"action_id": 26, "second": 2760.0},
+            ],
+            "second_half_markers": [
+                {"action_id": 74, "second": 2761.0},
+                {"action_id": 33, "second": 2762.0},
+                {"action_id": 2, "second": 5700.0},
+                {"action_id": 89, "second": 5785.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2]
+        assert periods[0].end_timestamp == timedelta(seconds=2760)
+        assert periods[1].start_timestamp == timedelta(seconds=2760)
+        assert periods[1].end_timestamp == timedelta(seconds=5785)
+
+    def test_late_half_time_does_not_trigger_a_shootout(self):
+        """A late HALF_TIME must not be read as a shootout whistle.
+
+        This is what actually loses the data: every MGP ingest loads with
+        ``exclude_penalty_shootouts=True``, so a phantom P5 covering the
+        real second half is dropped on the floor rather than merely
+        mislabelled.
+        """
+        raw = {
+            "first_half_markers": [
+                {"action_id": 1, "second": 0.0},
+                {"action_id": 2, "second": 1000.0},
+                {"action_id": 75, "second": 2866.0},
+            ],
+            "second_half_markers": [
+                {"action_id": 74, "second": 2873.0},
+                {"action_id": 2, "second": 3000.0},
+                {"action_id": 65, "second": 4000.0},
+                {"action_id": 2, "second": 5900.0},
+                {"action_id": 89, "second": 5921.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert 5 not in [p.id for p in periods]
+        second_half = periods[1]
+        assert second_half.end_timestamp - second_half.start_timestamp > (
+            timedelta(minutes=40)
+        )
+
+    def test_genuine_shootout_survives_a_late_half_time(self):
+        """A file can carry both quirks: the late twin AND a real shootout.
+
+        The late twin sits right on top of the restart with no play in
+        between; the shootout whistle has a full half of play before it.
+        Only the latter may open P5.
+        """
+        raw = {
+            "first_half_markers": [
+                {"action_id": 1, "second": 0.0},
+                {"action_id": 2, "second": 1000.0},
+                {"action_id": 75, "second": 2900.0},
+            ],
+            "second_half_markers": [
+                {"action_id": 74, "second": 2905.0},  # late twin
+                {"action_id": 2, "second": 3000.0},
+                {"action_id": 2, "second": 5800.0},
+                {"action_id": 74, "second": 5900.0},  # shootout whistle
+                {"action_id": 65, "second": 6000.0},
+                {"action_id": 89, "second": 6300.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2, 5]
+        assert periods[0].end_timestamp == timedelta(seconds=2900)
+        assert periods[1].start_timestamp == timedelta(seconds=2900)
+        assert periods[1].end_timestamp == timedelta(seconds=5900)
+        assert periods[2].start_timestamp == timedelta(seconds=5900)
+        assert periods[2].end_timestamp == timedelta(seconds=6300)
+
+    def test_late_half_time_with_the_lineup_dump_in_the_gap(self):
+        """A stray marker in the gap must not rescue the late HALF_TIME.
+
+        Match 683634 (Paris FC-PSG) writes twelve second-half position
+        markers at 2761, between the SECOND_HALF marker at 2760 and the
+        HALF_TIME at 2762. There *are* markers in between, so adjacency
+        alone no longer identifies the late twin -- but a shootout has no
+        open play, and a whole half of it follows.
+        """
+        raw = {
+            "first_half_markers": [
+                {"action_id": 1, "second": 0.0},
+                {"action_id": 2, "second": 1000.0},
+                {"action_id": 75, "second": 2760.0},
+                {"action_id": 4, "second": 2761.0},
+                {"action_id": 9, "second": 2761.0},
+                {"action_id": 12, "second": 2761.0},
+            ],
+            "second_half_markers": [
+                {"action_id": 74, "second": 2762.0},
+                {"action_id": 2, "second": 2800.0},
+                {"action_id": 25, "second": 4000.0},
+                {"action_id": 2, "second": 5700.0},
+                {"action_id": 89, "second": 5768.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2]
+        assert periods[0].end_timestamp == timedelta(seconds=2760)
+        assert periods[1].end_timestamp == timedelta(seconds=5768)
+
+    def test_late_half_time_with_open_play_in_the_gap(self):
+        """Play inside the gap still does not make it a shootout whistle.
+
+        Match 723447 (Real Monarchs-The Town) restarts at 2767, plays on
+        (passes, a clearance, an aerial duel) and only then stamps a
+        second HALF_TIME at 2778. Whatever landed in the gap, ~50 minutes
+        of open play follows, and a penalty shootout contains none.
+        """
+        raw = {
+            "first_half_markers": [
+                {"action_id": 1, "second": 0.0},
+                {"action_id": 2, "second": 1000.0},
+            ],
+            "second_half_markers": [
+                {"action_id": 75, "second": 2767.0},
+                {"action_id": 74, "second": 2767.0},
+                {"action_id": 26, "second": 2771.0},
+                {"action_id": 115, "second": 2774.0},
+                {"action_id": 30, "second": 2776.0},
+                {"action_id": 74, "second": 2778.0},
+                {"action_id": 2, "second": 3000.0},
+                {"action_id": 2, "second": 5700.0},
+                {"action_id": 89, "second": 5742.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2]
+        assert periods[0].end_timestamp == timedelta(seconds=2767)
+        assert periods[1].start_timestamp == timedelta(seconds=2767)
+        assert periods[1].end_timestamp == timedelta(seconds=5742)
+
+    def test_shootout_recognised_with_no_open_play_after_it(self):
+        """The mirror image: a short, play-free tail *is* a shootout.
+
+        Same shape as the test above but the tail is kicks, saves and
+        goals rather than open play, so P5 must appear.
+        """
+        raw = {
+            "first_half_markers": [
+                {"action_id": 1, "second": 0.0},
+                {"action_id": 2, "second": 1000.0},
+            ],
+            "second_half_markers": [
+                {"action_id": 75, "second": 2767.0},
+                {"action_id": 74, "second": 2767.0},
+                {"action_id": 2, "second": 3000.0},
+                {"action_id": 2, "second": 5700.0},
+                {"action_id": 74, "second": 5800.0},
+                {"action_id": 65, "second": 5850.0},  # shootout goal
+                {"action_id": 70, "second": 5900.0},  # shootout shot
+                {"action_id": 71, "second": 5950.0},  # shootout save
+                {"action_id": 89, "second": 6100.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2, 5]
+        assert periods[1].end_timestamp == timedelta(seconds=5800)
+        assert periods[2].start_timestamp == timedelta(seconds=5800)
+        assert periods[2].end_timestamp == timedelta(seconds=6100)
+
+    def test_period_never_ends_before_its_last_event(self):
+        """Backstop invariant, independent of which marker was misplaced.
+
+        Here MATCH_END is stamped before the last event of the match. The
+        period end is pushed out to that event rather than leaving it
+        outside every period.
+        """
+        raw = {
+            "first_half_markers": [
+                {"action_id": 1, "second": 0.0},
+                {"action_id": 2, "second": 100.0},
+                {"action_id": 74, "second": 2700.0},
+            ],
+            "second_half_markers": [
+                {"action_id": 75, "second": 2750.0},
+                {"action_id": 2, "second": 3000.0},
+                {"action_id": 89, "second": 5000.0},
+                {"action_id": 2, "second": 5200.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2]
+        assert periods[1].end_timestamp == timedelta(seconds=5200)
+
     def test_extra_time_marker_lists_deduplicated(self):
         """first_extra_time_markers is a duplicate subset of
         second_half_markers; pooling both must not produce a sixth period
@@ -1262,3 +1500,162 @@ class TestSmrtStatsExtraTimeMatch:
                 f"x={shot.coordinates.x}"
             )
             assert shot.coordinates.y == pytest.approx(34.0)
+
+
+# Trimmed real-world feeds, derived from s3://mgp-raw/event/smrtstats/<id>.json
+# by keeping every boundary/lineup/formation marker plus the play immediately
+# around each boundary and at both ends of each marker list.
+#
+# ``late_``: HALF_TIME (74) is stamped after the SECOND_HALF (75) marker.
+# ``aligned_``: the two share a ``second``, which is the common layout.
+#
+# Columns: (fixture stem, SECOND_HALF second, HALF_TIME second, P2 end).
+# P2 normally ends at MATCH_END; 723447 stamps MATCH_END at 5742 with
+# events out to 6044, so there the last event is the end.
+LATE_HALF_TIME_FIXTURES = [
+    # Nothing at all between the restart and its HALF_TIME.
+    ("smrtstats_late_half_time_683623", 2760.0, 2761.0, 5785.0),
+    ("smrtstats_late_half_time_687100", 2866.0, 2873.0, 5921.0),
+    ("smrtstats_late_half_time_686513", 2837.0, 2838.0, 5899.0),
+    # The second-half lineup dump lands inside the gap (12 position
+    # markers at 2761), so "no markers in between" does not hold.
+    ("smrtstats_late_half_time_683634", 2760.0, 2762.0, 5768.0),
+    # Real open play lands inside the gap (passes, a clearance and an
+    # aerial duel between 2767 and 2778), and the file carries two
+    # HALF_TIME markers: one on the restart, one 11s after it.
+    ("smrtstats_late_half_time_723447", 2767.0, 2778.0, 6044.0),
+]
+
+ALIGNED_HALF_TIME_FIXTURES = [
+    ("smrtstats_aligned_half_time_733180", 2866.0, 2866.0, 5834.0),
+    ("smrtstats_aligned_half_time_733179", 2953.0, 2953.0, 5895.0),
+]
+
+
+class TestSmrtStatsHalfTimeMarkerOrdering:
+    """Regression tests for a second half lost to a late HALF_TIME marker.
+
+    Affected matches stored a first half of ~2800s with well over a
+    thousand events and a second half of 1-7s with none, because the sole
+    HALF_TIME marker in the file was timestamped just after the
+    SECOND_HALF marker it belongs before. The raw feeds are complete; only
+    the period derivation was wrong.
+
+    * 683623 Lens vs Nantes (Ligue 1, 2026-05-08), HALF_TIME +1s
+    * 687100 Cesena vs Padova (Serie B, 2026-05-08), HALF_TIME +7s
+    * 686513 Cardiff vs Bolton (2026-04-11), HALF_TIME +1s
+
+    733180 (Angers vs Lille) and 733179 (Le Havre vs Monaco) are healthy
+    controls: they must be read exactly as before.
+    """
+
+    @staticmethod
+    def _load(base_dir, stem, **kwargs):
+        return smrtstats.load(
+            raw_data=base_dir / "files" / f"{stem}.json",
+            coordinates="smrtstats",
+            **kwargs,
+        )
+
+    @pytest.mark.parametrize(
+        "stem,second_half,half_time,p2_end",
+        LATE_HALF_TIME_FIXTURES + ALIGNED_HALF_TIME_FIXTURES,
+    )
+    def test_two_regulation_periods_only(
+        self, base_dir, stem, second_half, half_time, p2_end
+    ):
+        """No phantom extra-time or shootout period is invented."""
+        dataset = self._load(base_dir, stem)
+        assert [p.id for p in dataset.metadata.periods] == [1, 2]
+
+    @pytest.mark.parametrize(
+        "stem,second_half,half_time,p2_end",
+        LATE_HALF_TIME_FIXTURES + ALIGNED_HALF_TIME_FIXTURES,
+    )
+    def test_second_half_spans_the_restart_to_match_end(
+        self, base_dir, stem, second_half, half_time, p2_end
+    ):
+        """P2 runs from the SECOND_HALF marker to MATCH_END.
+
+        The late HALF_TIME is the first half's, so it never shortens P2 —
+        not to ``half_time``, and not to anything else short of the whistle.
+        """
+        p1, p2 = self._load(base_dir, stem).metadata.periods
+        assert p1.start_timestamp <= timedelta(seconds=1)
+        assert p1.end_timestamp == timedelta(seconds=second_half)
+        assert p2.start_timestamp == timedelta(seconds=second_half)
+        assert p2.end_timestamp == timedelta(seconds=p2_end)
+
+    @pytest.mark.parametrize(
+        "stem,second_half,half_time,p2_end",
+        LATE_HALF_TIME_FIXTURES + ALIGNED_HALF_TIME_FIXTURES,
+    )
+    def test_both_halves_are_a_plausible_length(
+        self, base_dir, stem, second_half, half_time, p2_end
+    ):
+        """Every regulation half lasts at least 40 minutes.
+
+        The bug's signature was a 1-7 second second half, so this is the
+        assertion that fails loudest if the boundary logic regresses.
+        """
+        for period in self._load(base_dir, stem).metadata.periods:
+            duration = period.end_timestamp - period.start_timestamp
+            assert duration > timedelta(
+                minutes=40
+            ), f"{stem} period {period.id} lasts {duration}"
+
+    @pytest.mark.parametrize(
+        "stem,second_half,half_time,p2_end",
+        LATE_HALF_TIME_FIXTURES + ALIGNED_HALF_TIME_FIXTURES,
+    )
+    def test_both_halves_receive_events(
+        self, base_dir, stem, second_half, half_time, p2_end
+    ):
+        dataset = self._load(base_dir, stem)
+        for period_id in (1, 2):
+            assert any(
+                e.period.id == period_id for e in dataset.events
+            ), f"{stem} period {period_id} has no events"
+
+    @pytest.mark.parametrize(
+        "stem,second_half,half_time,p2_end",
+        LATE_HALF_TIME_FIXTURES + ALIGNED_HALF_TIME_FIXTURES,
+    )
+    def test_excluding_shootouts_drops_nothing(
+        self, base_dir, stem, second_half, half_time, p2_end
+    ):
+        """These matches have no shootout, so the flag is a no-op.
+
+        This is the assertion closest to the reported symptom: every MGP
+        ingest passes ``exclude_penalty_shootouts=True``, and it was that
+        flag which turned a mislabelled second half into a missing one.
+        """
+        full = self._load(base_dir, stem)
+        excluded = self._load(base_dir, stem, exclude_penalty_shootouts=True)
+        assert [p.id for p in excluded.metadata.periods] == [
+            p.id for p in full.metadata.periods
+        ]
+        assert len(excluded.events) == len(full.events)
+
+    @pytest.mark.parametrize(
+        "stem,second_half,half_time,p2_end", LATE_HALF_TIME_FIXTURES
+    )
+    def test_fixture_really_has_a_late_half_time(
+        self, base_dir, stem, second_half, half_time, p2_end
+    ):
+        """Guard the fixtures themselves.
+
+        Trimming must not have dropped the marker that makes these files
+        interesting, or the tests above would pass vacuously.
+        """
+        raw = json.loads((base_dir / "files" / f"{stem}.json").read_text())
+        markers = (raw["first_half_markers"] or []) + (
+            raw["second_half_markers"] or []
+        )
+        assert half_time > second_half
+        assert half_time in [
+            e["second"] for e in markers if e["action_id"] == 74
+        ]
+        assert [e["second"] for e in markers if e["action_id"] == 75] == [
+            second_half
+        ]
