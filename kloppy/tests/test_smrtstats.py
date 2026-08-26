@@ -1251,6 +1251,166 @@ class TestSmrtStatsCreatePeriods:
         periods = SmrtStatsDeserializer.create_periods(raw)
         assert [p.id for p in periods] == [1, 2, 3, 4]
 
+    def test_stray_second_half_marker_inside_the_first_half(self):
+        """A SECOND_HALF stamped mid-first-half does not start the second.
+
+        727904's shape: the restart marker lands 585s before the whistle
+        while the first half plays on. Taken at face value it truncates
+        the first half and hands its last ten minutes to the second.
+        """
+        raw = {
+            "first_half_markers": [
+                {"id": 1, "action_id": 1, "second": 0.0},
+                {"id": 2, "action_id": 2, "second": 500.0},
+                # The stray restart marker, mid-play.
+                {"id": 3, "action_id": 75, "second": 2400.0},
+                {"id": 4, "action_id": 2, "second": 2500.0},
+                {"id": 5, "action_id": 2, "second": 2800.0},
+            ],
+            "second_half_markers": [
+                {"id": 10, "action_id": 74, "second": 2900.0},
+                {"id": 11, "action_id": 2, "second": 2950.0},
+                {"id": 12, "action_id": 2, "second": 5700.0},
+                {"id": 13, "action_id": 89, "second": 5800.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2]
+        # The whistle is the boundary, not the stray marker.
+        assert periods[0].end_timestamp == timedelta(seconds=2900)
+        assert periods[1].start_timestamp == timedelta(seconds=2900)
+        assert periods[1].end_timestamp == timedelta(seconds=5800)
+
+    def test_stray_extra_time_marker_after_the_restart(self):
+        """An ET1 marker seconds into the second half is not extra time.
+
+        699940's shape. The only whistle in the file already accounts for
+        the restart, so nothing separates the claimed extra time from the
+        half it interrupts, and the ball never went out of play.
+        """
+        raw = {
+            "first_half_markers": [
+                {"id": 1, "action_id": 1, "second": 0.0},
+                {"id": 2, "action_id": 2, "second": 2800.0},
+            ],
+            "second_half_markers": [
+                {"id": 10, "action_id": 75, "second": 2860.0},
+                {"id": 11, "action_id": 74, "second": 2860.0},
+                {"id": 12, "action_id": 2, "second": 2865.0},
+                # Stray: eleven seconds in, with play either side.
+                {"id": 13, "action_id": 81, "second": 2871.0},
+                {"id": 14, "action_id": 2, "second": 2875.0},
+                {"id": 15, "action_id": 2, "second": 5800.0},
+                {"id": 16, "action_id": 89, "second": 5850.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2]
+        assert periods[1].start_timestamp == timedelta(seconds=2860)
+        assert periods[1].end_timestamp == timedelta(seconds=5850)
+
+    def test_second_half_marker_far_from_its_list_end_is_kept(self):
+        """A legitimate restart is not judged by its distance from the end.
+
+        720080 dumps both regulation halves into ``first_half_markers``,
+        leaving its real SECOND_HALF marker 2744s before that list ends.
+        The whistle sits on the marker, so it stands. Any rule keyed on
+        list membership or on distance would discard it.
+        """
+        raw = {
+            "first_half_markers": [
+                {"id": 1, "action_id": 1, "second": 0.0},
+                {"id": 2, "action_id": 2, "second": 1000.0},
+                {"id": 3, "action_id": 74, "second": 2900.0},
+                {"id": 4, "action_id": 75, "second": 2900.0},
+                {"id": 5, "action_id": 2, "second": 3000.0},
+                {"id": 6, "action_id": 2, "second": 5644.0},
+            ],
+            "second_half_markers": [
+                {"id": 10, "action_id": 89, "second": 5700.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2]
+        assert periods[1].start_timestamp == timedelta(seconds=2900)
+
+    def test_period_starts_survive_a_feed_with_no_whistles(self):
+        """With no HALF_TIME anywhere, every start is taken at face value.
+
+        The whistle is the only evidence that can retire a period start, so
+        its absence must never cost a period. Failing open here is
+        deliberate: mislabelling a period is recoverable, losing one is not.
+        """
+        raw = {
+            "first_half_markers": [
+                {"id": 1, "action_id": 1, "second": 0.0},
+            ],
+            "second_half_markers": [
+                {"id": 10, "action_id": 75, "second": 2900.0},
+                {"id": 11, "action_id": 2, "second": 3000.0},
+                {"id": 12, "action_id": 81, "second": 5800.0},
+                {"id": 13, "action_id": 2, "second": 6000.0},
+                {"id": 14, "action_id": 85, "second": 6700.0},
+                {"id": 15, "action_id": 89, "second": 7600.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2, 3, 4]
+
+    def test_duplicate_whistle_in_open_play_opens_no_period(self):
+        """A whistle stamped twice must not manufacture a boundary.
+
+        723447 carries a HALF_TIME on the restart and another eleven
+        seconds later, mid-move. The second one opens no marker list, so it
+        cannot host a period start.
+        """
+        raw = {
+            "first_half_markers": [
+                {"id": 1, "action_id": 1, "second": 0.0},
+                {"id": 2, "action_id": 2, "second": 2750.0},
+            ],
+            "second_half_markers": [
+                {"id": 10, "action_id": 75, "second": 2767.0},
+                {"id": 11, "action_id": 74, "second": 2767.0},
+                {"id": 12, "action_id": 2, "second": 2771.0},
+                {"id": 13, "action_id": 74, "second": 2778.0},
+                {"id": 14, "action_id": 2, "second": 2780.0},
+                {"id": 15, "action_id": 2, "second": 6000.0},
+                {"id": 16, "action_id": 89, "second": 6050.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2]
+        assert periods[1].start_timestamp == timedelta(seconds=2767)
+        assert periods[1].end_timestamp == timedelta(seconds=6050)
+
+    def test_stray_marker_relocation_needs_play_after_the_whistle(self):
+        """The final whistle before a shootout hosts no relocated start.
+
+        Same shape as a stray SECOND_HALF, except what follows the spare
+        whistle is a shootout rather than football. Relocating onto it
+        would turn the shootout into a regulation half.
+        """
+        raw = {
+            "first_half_markers": [
+                {"id": 1, "action_id": 1, "second": 0.0},
+                {"id": 2, "action_id": 74, "second": 2900.0},
+                {"id": 3, "action_id": 75, "second": 2900.0},
+                {"id": 4, "action_id": 2, "second": 3000.0},
+                {"id": 5, "action_id": 2, "second": 5900.0},
+            ],
+            "second_half_markers": [
+                {"id": 10, "action_id": 74, "second": 6000.0},
+                # Shootout: kicks and goals only, no ball circulation.
+                {"id": 11, "action_id": 44, "second": 6100.0},
+                {"id": 12, "action_id": 44, "second": 6200.0},
+                {"id": 13, "action_id": 89, "second": 6300.0},
+            ],
+        }
+        periods = SmrtStatsDeserializer.create_periods(raw)
+        assert [p.id for p in periods] == [1, 2, 5]
+        assert periods[2].start_timestamp == timedelta(seconds=6000)
+
 
 class TestSmrtStatsShootoutMatch:
     """Integration tests against a trimmed real-world shootout fixture
@@ -1658,4 +1818,153 @@ class TestSmrtStatsHalfTimeMarkerOrdering:
         ]
         assert [e["second"] for e in markers if e["action_id"] == 75] == [
             second_half
+        ]
+
+
+# Columns: (fixture stem, stray marker second, real boundary second,
+# P1 start, P2 end).
+STRAY_SECOND_HALF_FIXTURES = [
+    # Deportivo La Guaira vs Bolivar (Copa Libertadores, 2026-05-06). The
+    # worst of the archive: the restart marker is 585s early and 192 of
+    # the first half's events fall after it.
+    ("smrtstats_stray_second_half_727904", 2375.0, 2960.0, 4.0, 6623.0),
+    # Atlanta United II vs Toronto II (MLS Next Pro, 2026-07-04), 285s.
+    ("smrtstats_stray_second_half_723555", 2720.0, 3005.0, 3.0, 6081.0),
+    # Spartak Trnava vs DAC 1904 (Slovakia Nike Liga, 2026-04-22). The
+    # mildest instance found, 49s and 10 events, and the reason the rule
+    # cannot key on magnitude: healthy feeds reach 13s of the same jitter.
+    ("smrtstats_stray_second_half_724569", 2836.0, 2885.0, 1.0, 6011.0),
+]
+
+
+class TestSmrtStatsStrayPeriodStartMarker:
+    """Regression tests for a period start marker the feed contradicts.
+
+    Distinct from the late-HALF_TIME defect above, which loses a half
+    outright. Here every event survives but lands in the wrong period:
+
+    * A stray SECOND_HALF inside the first half truncates it and hands its
+      closing minutes to the second half. Across 97 sampled feeds, 14 carry
+      this, misplacing 1288 events in total.
+    * A stray FIRST_HALF_ADDITIONAL_TIME_START collapses the second half to
+      seconds and relabels the real one as extra time (699940 Carolina
+      Ascent W vs Lexington W, USL Super League Women's, 2026-02-07).
+
+    Because the events are all present, nothing downstream reports a
+    problem: the halves simply disagree with the provider's own split.
+    """
+
+    @staticmethod
+    def _load(base_dir, stem, **kwargs):
+        return smrtstats.load(
+            raw_data=base_dir / "files" / f"{stem}.json",
+            coordinates="smrtstats",
+            **kwargs,
+        )
+
+    @pytest.mark.parametrize(
+        "stem,stray,boundary,p1_start,p2_end", STRAY_SECOND_HALF_FIXTURES
+    )
+    def test_boundary_is_the_whistle_not_the_stray_marker(
+        self, base_dir, stem, stray, boundary, p1_start, p2_end
+    ):
+        p1, p2 = self._load(base_dir, stem).metadata.periods
+        assert p1.start_timestamp == timedelta(seconds=p1_start)
+        assert p1.end_timestamp == timedelta(seconds=boundary)
+        assert p2.start_timestamp == timedelta(seconds=boundary)
+        assert p2.end_timestamp == timedelta(seconds=p2_end)
+
+    @pytest.mark.parametrize(
+        "stem,stray,boundary,p1_start,p2_end", STRAY_SECOND_HALF_FIXTURES
+    )
+    def test_two_regulation_periods_only(
+        self, base_dir, stem, stray, boundary, p1_start, p2_end
+    ):
+        dataset = self._load(base_dir, stem)
+        assert [p.id for p in dataset.metadata.periods] == [1, 2]
+
+    @pytest.mark.parametrize(
+        "stem,stray,boundary,p1_start,p2_end", STRAY_SECOND_HALF_FIXTURES
+    )
+    def test_first_half_keeps_the_events_after_the_stray_marker(
+        self, base_dir, stem, stray, boundary, p1_start, p2_end
+    ):
+        """Events the provider filed as first half stay in the first half.
+
+        This is the assertion the defect fails: those events used to be
+        served as second-half play, which also shifts their video offset
+        onto the wrong half of the footage.
+        """
+        dataset = self._load(base_dir, stem)
+        raw = json.loads((base_dir / "files" / f"{stem}.json").read_text())
+        first_half_seconds = {
+            e["second"]
+            for e in raw["first_half_markers"]
+            if e["second"] is not None and e["action_id"] not in (1, 74, 75)
+        }
+        after_stray = {s for s in first_half_seconds if s > stray}
+        assert after_stray, f"{stem} exercises nothing"
+        for event in dataset.events:
+            absolute = (
+                event.period.start_timestamp.total_seconds()
+                + event.timestamp.total_seconds()
+            )
+            if absolute in after_stray:
+                assert event.period.id == 1, (
+                    f"{stem}: event at {absolute}s is first-half play "
+                    f"but landed in period {event.period.id}"
+                )
+
+    @pytest.mark.parametrize(
+        "stem,stray,boundary,p1_start,p2_end", STRAY_SECOND_HALF_FIXTURES
+    )
+    def test_fixture_really_has_a_stray_second_half_marker(
+        self, base_dir, stem, stray, boundary, p1_start, p2_end
+    ):
+        """Guard the fixtures: the stray marker must have survived trimming,
+        with real play after it, or the tests above pass vacuously.
+        """
+        raw = json.loads((base_dir / "files" / f"{stem}.json").read_text())
+        first_half = raw["first_half_markers"]
+        assert stray in [
+            e["second"] for e in first_half if e["action_id"] == 75
+        ]
+        assert boundary in [
+            e["second"]
+            for e in raw["second_half_markers"]
+            if e["action_id"] == 74
+        ]
+        assert [
+            e
+            for e in first_half
+            if e["second"] is not None and stray < e["second"] < boundary
+        ]
+
+    def test_stray_extra_time_marker_yields_two_periods(self, base_dir):
+        """699940: the real second half is not extra time.
+
+        The stray ET1 marker sits 11s past the restart. Left alone it gives
+        a second half of 11s and files the remaining 49 minutes as P3, so
+        any regulation-only aggregate silently drops half the match.
+        """
+        dataset = self._load(base_dir, "smrtstats_stray_extra_time_699940")
+        periods = dataset.metadata.periods
+        assert [p.id for p in periods] == [1, 2]
+        assert periods[1].start_timestamp == timedelta(seconds=2859)
+        assert periods[1].end_timestamp == timedelta(seconds=5845)
+        second_half = periods[1].end_timestamp - periods[1].start_timestamp
+        assert second_half > timedelta(minutes=40)
+
+    def test_stray_extra_time_fixture_keeps_its_marker(self, base_dir):
+        raw = json.loads(
+            (
+                base_dir / "files" / "smrtstats_stray_extra_time_699940.json"
+            ).read_text()
+        )
+        markers = raw["first_half_markers"] + raw["second_half_markers"]
+        assert 2870.0 in [e["second"] for e in markers if e["action_id"] == 81]
+        # Exactly one whistle in the file, and it is already spoken for by
+        # the restart, which is what makes the ET marker unaccountable.
+        assert [e["second"] for e in markers if e["action_id"] == 74] == [
+            2859.0
         ]

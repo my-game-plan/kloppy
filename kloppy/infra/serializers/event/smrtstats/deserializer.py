@@ -642,6 +642,118 @@ def _parse_pass(raw_event: Dict, action_id: int, team: Team) -> Dict:
     )
 
 
+def _license_period_starts(
+    boundaries: List[Tuple[int, float]],
+    half_times: List[float],
+    list_starts: set,
+    open_play_between,
+    open_play_after,
+) -> List[Tuple[int, float]]:
+    """Drop or relocate period starts that no half-time whistle accounts for.
+
+    SmrtStats emits a spurious period-start marker in a meaningful minority
+    of matches, and it lands in the middle of the period before it:
+
+    * A stray SECOND_HALF inside the first half (727904 La Guaira-Bolivar
+      at 2375 while the first half runs to 2818; 723555 at 2720 of 2997;
+      687101 at 2595 of 3004). The claimed second half then swallows the
+      rest of the first, and the first half is truncated by up to ten
+      minutes. 14 of 97 sampled feeds carry this, 1288 events in total.
+    * A stray FIRST_HALF_ADDITIONAL_TIME_START (e.g. 699940 at 2870, eleven
+      seconds after the restart). The second half collapses to those eleven
+      seconds and the real one is relabelled extra time, so anything
+      aggregating regulation play loses it.
+
+    The discriminator is not how far the marker sits from the truth. The
+    stray markers span 20 s to 585 s from the real boundary, overlapping the
+    range of ordinary stamping jitter, and a match whose halves are both
+    dumped into ``first_half_markers`` (720080) puts its legitimate
+    SECOND_HALF 2744 s before the end of that list. Any threshold on
+    distance or on list membership therefore either misses real defects or
+    rejects healthy feeds.
+
+    What does separate them is the half-time whistle. Play cannot restart
+    without a break, so every period start bar the first is paired with a
+    HALF_TIME describing the same instant: the two carry the same second, or
+    differ by a few seconds with no play in between. One whistle licenses
+    one restart. A start with no whistle left to pair with did not happen.
+
+    An unlicensed start is relocated rather than dropped when an
+    unaccounted-for whistle can host it, which needs two independent things
+    to agree: the whistle opens one of the marker lists, and open play
+    follows it. The first rules out a whistle stamped twice inside
+    continuous play (723447 has one on the restart and another eleven
+    seconds later, mid-move); the second rules out the final whistle before
+    a penalty shootout, which opens ``second_half_markers`` in exactly the
+    same way but is followed only by kicks and saves. Where no whistle
+    qualifies, the start is dropped and its events fall to the period that
+    really contains them.
+    """
+    if len(boundaries) <= 1:
+        return boundaries
+
+    unclaimed = sorted(half_times)
+    kept: List[Tuple[int, float]] = [boundaries[0]]
+    # Whether the start we last kept has a whistle of its own. Only then can
+    # a whistle be "used up", which is what makes the next start suspect.
+    previous_has_whistle = False
+
+    for idx in range(1, len(boundaries)):
+        pid, start = boundaries[idx]
+        next_start = (
+            boundaries[idx + 1][1]
+            if idx + 1 < len(boundaries)
+            else float("inf")
+        )
+
+        # 1. The ordinary case: a whistle describing the same instant, in
+        #    either stamping order.
+        adjacent = None
+        for whistle in unclaimed:
+            lo, hi = (start, whistle) if start <= whistle else (whistle, start)
+            if not open_play_between(lo, hi):
+                adjacent = whistle
+                break
+        if adjacent is not None:
+            unclaimed.remove(adjacent)
+            kept.append((pid, start))
+            previous_has_whistle = True
+            continue
+
+        # 2. A whistle inside the period this start claims, corroborated by
+        #    a marker list opening there and by play resuming after it. The
+        #    start was stamped early; the whistle is the real boundary.
+        relocated = None
+        for whistle in unclaimed:
+            if (
+                start < whistle < next_start
+                and whistle in list_starts
+                and open_play_after(whistle)
+            ):
+                relocated = whistle
+                break
+        if relocated is not None:
+            unclaimed.remove(relocated)
+            kept.append((pid, relocated))
+            previous_has_whistle = True
+            continue
+
+        # 3. Drop only against positive evidence: the preceding start
+        #    already used the whistle that would have to precede this one,
+        #    and the ball stayed in play across it. Absent that, keep the
+        #    start. Losing a period is far worse than mislabelling one, so
+        #    silence in the feed must never cost a period.
+        if previous_has_whistle and open_play_between(kept[-1][1], start):
+            continue
+
+        kept.append((pid, start))
+        previous_has_whistle = False
+
+    # Starts must stay ordered for every downstream boundary calculation.
+    kept.sort(key=lambda item: item[1])
+    return kept
+
+
 class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
     @property
     def provider(self) -> Provider:
@@ -808,6 +920,16 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
         period, mislabelling a few dozen events instead of discarding a
         half of ~1000.
 
+        The period-start markers are unreliable in their own right, and
+        independently of the above: a stray SECOND_HALF or ET1 lands in the
+        middle of the period before it, moving a boundary by anything from
+        20s to ten minutes. Since a restart needs a break to restart from,
+        each start bar the first has to be accounted for by a half-time
+        whistle; one whistle accounts for one restart. See
+        :func:`_license_period_starts` for how an unaccounted-for start is
+        relocated or dropped, and for why it fails open when the feed
+        carries no whistles at all.
+
         Finally the derived boundaries are checked against an invariant
         that cannot silently fail: a period never ends before the last
         event that belongs to it.
@@ -887,6 +1009,23 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
             and e.get("second") is not None
         )
 
+        # The second each marker list opens at. SmrtStats splits the match
+        # across these lists at the real period boundaries, so a list's
+        # first second is independent corroboration for a boundary that the
+        # in-band markers disagree about. Only used to confirm a whistle
+        # that is already unaccounted for, never on its own: the lists are
+        # not trustworthy in general, since ET matches routinely dump both
+        # regulation halves into first_half_markers.
+        list_starts = set()
+        for key in all_marker_keys:
+            seconds = [
+                e["second"]
+                for e in raw_events.get(key, []) or []
+                if e.get("second") is not None
+            ]
+            if seconds:
+                list_starts.add(min(seconds))
+
         def _played_between(lo: float, hi: float) -> bool:
             """Was there any play strictly between ``lo`` and ``hi``?
 
@@ -917,13 +1056,27 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                 return False
             return not _played_between(attached_to, half_time)
 
+        open_play_seconds = sorted(
+            e["second"]
+            for e in all_markers
+            if e.get("action_id") in OPEN_PLAY_ACTION_IDS
+            and e.get("second") is not None
+        )
+
         def _open_play_after(second: float) -> bool:
-            return any(
-                e.get("action_id") in OPEN_PLAY_ACTION_IDS
-                and e.get("second") is not None
-                and e["second"] > second
-                for e in all_markers
-            )
+            return any(s > second for s in open_play_seconds)
+
+        def _open_play_between(lo: float, hi: float) -> bool:
+            """Was the ball in play strictly between ``lo`` and ``hi``?
+
+            Deliberately narrower than :func:`_played_between`. Asked when
+            pairing a period start with its whistle, where the only thing
+            that matters is whether football was played in the gap. A
+            restart drags a dump of position and formation markers with it,
+            and a substitution can be logged a second either side; none of
+            that means the half had begun.
+            """
+            return any(lo < second < hi for second in open_play_seconds)
 
         def _can_be_the_final_whistle(half_time: float) -> bool:
             """Could the match (bar a shootout) be over at this HALF_TIME?
@@ -934,6 +1087,17 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
             follows is another period however the markers are stamped.
             """
             return not _open_play_after(half_time)
+
+        # A period start is only real if a half-time whistle accounts for
+        # it. See _license_period_starts for why this is checked and how.
+        boundaries = _license_period_starts(
+            boundaries,
+            half_times,
+            list_starts,
+            _open_play_between,
+            _open_play_after,
+        )
+        period_starts = [start for _, start in boundaries]
 
         # Only these can end the period they fall in or open a shootout.
         free_half_times = []
