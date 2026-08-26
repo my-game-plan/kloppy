@@ -174,6 +174,56 @@ BOUNCING_SAVE_PLUS = 204
 BOUNCING_SAVE_MINUS = 205
 YELLOW_RED_CARD = 206
 
+# The markers that delimit periods rather than describe play. Used to tell
+# "did anything actually happen between these two seconds?" apart from
+# "were there any markers at all?".
+PERIOD_BOUNDARY_ACTION_IDS = frozenset(
+    {
+        FIRST_HALF,
+        SECOND_HALF,
+        FIRST_HALF_ADDITIONAL_TIME_START,
+        SECOND_HALF_ADDITIONAL_TIME_START,
+        HALF_TIME,
+        MATCH_END,
+    }
+)
+
+# Ball circulation: none of it is possible during a penalty shootout, which
+# is kicks, saves and goals and nothing else. Real shootouts (720080,
+# 671052) carry only shot, save and goal-state markers, while a half of
+# football carries hundreds of passes and receptions. That makes the
+# presence of open play a reliable, magnitude-free way to tell a shootout
+# from a period of play whose boundary marker is misplaced.
+OPEN_PLAY_ACTION_IDS = frozenset(
+    {
+        ACCURATE_PASS,
+        INACCURATE_PASS,
+        ACCURATE_KEY_PASS,
+        INACCURATE_KEY_PASS,
+        PASS_INTERCEPTION,
+        KEY_PASS_INTERCEPTION,
+        BALL_RECEIVING,
+        LOST_BALL,
+        RECOVERED_BALL,
+        BAD_BALL_CONTROL,
+        TOUCH,
+        AERIAL_DUEL,
+        DUEL,
+        TACKLE,
+        DRIBBLING,
+        DRIBBLE_PAST_OPPONENT_PLUS,
+        DRIBBLE_PAST_OPPONENT_MINUS,
+        CROSS,
+        ACCURATE_CROSS,
+        INACCURATE_CROSS,
+        CROSS_INTERCEPTION,
+        BALL_OUT_OF_THE_FIELD,
+        OFFSIDE,
+        CREATED_OFFSIDE_TRAP,
+        CLEARANCE,
+    }
+)
+
 ACTION_IDS_TO_IGNORE = (
     [
         FIRST_HALF,
@@ -727,6 +777,41 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
         events occur between that HALF_TIME and MATCH_END. P5 covers that
         range.
 
+        HALF_TIME is not reliably ordered against the period-start marker
+        it pairs with. Usually the two carry the same ``second``, but in a
+        large minority of matches (e.g. 683623 Lens-Nantes, 687100
+        Cesena-Padova, 686513 Cardiff-Bolton) HALF_TIME is stamped one to
+        seven seconds *after* SECOND_HALF. Since there is only ever one
+        HALF_TIME per file for regulation, a naive "first HALF_TIME after
+        this period's start" rule then hands the second half a one-second
+        end and hands the shootout detector the whole real second half:
+        P2 collapses and ~1000 events move into a phantom P5, which
+        ``exclude_penalty_shootouts`` (used by every MGP ingest) drops.
+
+        So HALF_TIME markers are classified structurally rather than by a
+        tolerance window, on two independent grounds:
+
+        * A HALF_TIME with no play between it and the period start that
+          precedes it closes the *previous* period, so it is not a
+          candidate end for the period it nominally falls in.
+        * A HALF_TIME with no period start after it can only be the final
+          whistle, and a shootout is the only thing that may follow one.
+          Since a shootout is kicks, saves and goals and contains no ball
+          circulation, open play afterwards proves another period follows
+          and the marker is misplaced. This catches the cases the first
+          rule cannot, where a stray event or two lands inside the gap
+          between the restart and its late HALF_TIME.
+
+        Neither test depends on how large the discrepancy is, so neither
+        needs tuning as provider noise changes. Both fail in the safe
+        direction: at worst a genuine shootout stays inside the preceding
+        period, mislabelling a few dozen events instead of discarding a
+        half of ~1000.
+
+        Finally the derived boundaries are checked against an invariant
+        that cannot silently fail: a period never ends before the last
+        event that belongs to it.
+
         Kloppy convention: P1/P2 = regulation, P3/P4 = extra time,
         P5 = penalty shootout.
         """
@@ -795,9 +880,77 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
         match_end = min(match_end_candidates) if match_end_candidates else None
         max_second = max(valid_seconds)
 
+        play_seconds = sorted(
+            e["second"]
+            for e in all_markers
+            if e.get("action_id") not in PERIOD_BOUNDARY_ACTION_IDS
+            and e.get("second") is not None
+        )
+
+        def _played_between(lo: float, hi: float) -> bool:
+            """Was there any play strictly between ``lo`` and ``hi``?
+
+            Strict on both ends on purpose: the feed is stamped in whole
+            seconds, so the last touch of a half routinely shares its
+            second with the boundary marker itself.
+            """
+            return any(lo < second < hi for second in play_seconds)
+
+        period_starts = [start for _, start in boundaries]
+
+        def _closes_previous_period(half_time: float) -> bool:
+            """Is this HALF_TIME the late-stamped twin of a period start?
+
+            A HALF_TIME separates play from play. If nothing happened
+            between the period start it follows and the HALF_TIME itself,
+            then no part of that period elapsed before it, so it cannot be
+            that period's end: it is the previous period's end, stamped
+            after the restart it should precede.
+            """
+            preceding = [s for s in period_starts if s <= half_time]
+            if not preceding:
+                return False
+            attached_to = max(preceding)
+            if attached_to == period_starts[0]:
+                # Nothing precedes the first period, so its HALF_TIME can
+                # only be its own end however sparse the feed is.
+                return False
+            return not _played_between(attached_to, half_time)
+
+        def _open_play_after(second: float) -> bool:
+            return any(
+                e.get("action_id") in OPEN_PLAY_ACTION_IDS
+                and e.get("second") is not None
+                and e["second"] > second
+                for e in all_markers
+            )
+
+        def _can_be_the_final_whistle(half_time: float) -> bool:
+            """Could the match (bar a shootout) be over at this HALF_TIME?
+
+            Only asked of a HALF_TIME with no period start after it, where
+            the alternatives are "final whistle" and "misplaced marker".
+            Open play afterwards settles it: a shootout has none, so what
+            follows is another period however the markers are stamped.
+            """
+            return not _open_play_after(half_time)
+
+        # Only these can end the period they fall in or open a shootout.
+        free_half_times = []
+        for h in half_times:
+            if _closes_previous_period(h):
+                continue
+            if not any(
+                s > h for s in period_starts
+            ) and not _can_be_the_final_whistle(h):
+                continue
+            free_half_times.append(h)
+
         last_period_start = boundaries[-1][1]
         shootout_start: Optional[float] = None
-        ht_after_last_start = [h for h in half_times if h > last_period_start]
+        ht_after_last_start = [
+            h for h in free_half_times if h > last_period_start
+        ]
         if ht_after_last_start:
             candidate = ht_after_last_start[0]
             # Confirm a shootout: real events (anything other than the
@@ -815,21 +968,24 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
         def _period_end(start: float, next_start: Optional[float]) -> float:
             if next_start is not None:
                 ht_in_range = [
-                    h for h in half_times if start < h <= next_start
+                    h for h in free_half_times if start < h <= next_start
                 ]
                 if ht_in_range:
                     return ht_in_range[0]
+                # No HALF_TIME of its own: the next period's start closes
+                # this one. Covers the late-stamped HALF_TIME, which would
+                # otherwise land past the restart it belongs before.
                 return next_start
             # Last regulation/ET period with no shootout: end at the first
             # HALF_TIME after start, else MATCH_END, else max event second.
-            ht_after = [h for h in half_times if h > start]
+            ht_after = [h for h in free_half_times if h > start]
             if ht_after:
                 return ht_after[0]
             if match_end is not None:
                 return match_end
             return max_second
 
-        periods: List[Period] = []
+        bounds: List[Tuple[int, float, float]] = []
         for idx, (pid, start) in enumerate(boundaries):
             if idx + 1 < len(boundaries):
                 end = _period_end(start, boundaries[idx + 1][1])
@@ -837,25 +993,38 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                 end = shootout_start
             else:
                 end = _period_end(start, None)
-            periods.append(
-                Period(
-                    id=pid,
-                    start_timestamp=timedelta(seconds=start),
-                    end_timestamp=timedelta(seconds=end),
-                )
-            )
+            bounds.append((pid, start, end))
 
         if shootout_start is not None:
             p5_end = match_end if match_end is not None else max_second
-            periods.append(
-                Period(
-                    id=5,
-                    start_timestamp=timedelta(seconds=shootout_start),
-                    end_timestamp=timedelta(seconds=p5_end),
-                )
-            )
+            bounds.append((5, shootout_start, p5_end))
 
-        return periods
+        # Invariant: a period never ends before the last event that belongs
+        # to it. A boundary marker landing early truncates a period and
+        # sends its events either into the next period or out of the
+        # dataset entirely, and nothing downstream can tell that happened.
+        # Extending the end is always safe: the following period's start is
+        # the ceiling, so no event can change hands.
+        checked: List[Tuple[int, float, float]] = []
+        for idx, (pid, start, end) in enumerate(bounds):
+            ceiling = bounds[idx + 1][1] if idx + 1 < len(bounds) else None
+            own_play = [
+                second
+                for second in play_seconds
+                if second >= start and (ceiling is None or second < ceiling)
+            ]
+            if own_play:
+                end = max(end, max(own_play))
+            checked.append((pid, start, end))
+
+        return [
+            Period(
+                id=pid,
+                start_timestamp=timedelta(seconds=start),
+                end_timestamp=timedelta(seconds=end),
+            )
+            for pid, start, end in checked
+        ]
 
     def deserialize(self, inputs: SmrtStatsInputs) -> EventDataset:
         transformer = self.get_transformer(
