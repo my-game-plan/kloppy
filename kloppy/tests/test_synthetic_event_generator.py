@@ -126,6 +126,30 @@ class TestSyntheticEventGenerator:
             > 0.80
         )
 
+    def test_synthetic_carries_always_have_a_duration(self, base_dir):
+        """A generated carry must span real time.
+
+        Opta reports a completed pass's arrival as the timestamp of the next
+        on-ball event, so the carry in between would start exactly when it ends
+        - zero duration, infinite implied speed. On this fixture that was 251 of
+        311 generated carries.
+        """
+        dataset = self._load_dataset_statsperform(base_dir)
+        dataset = dataset.add_synthetic_event(EventType.CARRY)
+
+        carries = dataset.find_all("carry")
+        assert carries, "expected the fixture to generate carries"
+
+        degenerate = [
+            carry
+            for carry in carries
+            if carry.end_timestamp - carry.timestamp <= timedelta(0)
+        ]
+        assert not degenerate, (
+            f"{len(degenerate)} of {len(carries)} carries have a duration "
+            f"of zero or less"
+        )
+
     def test_synthetic_ball_receipt_generator(self, base_dir):
 
         dataset = self._load_dataset_statsbomb(

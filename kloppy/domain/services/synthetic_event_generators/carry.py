@@ -41,6 +41,27 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
         self.max_length_meters = kwargs.get("max_length_meters") or 60
         self.max_duration = kwargs.get("max_duration") or timedelta(seconds=10)
         self.max_speed_mps = kwargs.get("max_speed_mps") or 12.0
+        # an estimate of the velocity of a pass (expressed in meters/second),
+        # matching SyntheticBallReceiptGenerator
+        self.pass_velocity_estimate_ms = (
+            kwargs.get("pass_velocity_estimate_ms") or 13
+        )
+
+    def _estimated_arrival(self, event, pitch):
+        """When the ball plausibly reached the receiver, from its flight time.
+
+        Used when the provider's own arrival time is not usable because it was
+        taken from the next action rather than measured.
+        """
+        receiver_coordinates = getattr(event, "receiver_coordinates", None)
+        if receiver_coordinates is None or event.coordinates is None:
+            return event.timestamp
+        return event.timestamp + timedelta(
+            seconds=pitch.distance_between(
+                event.coordinates, receiver_coordinates, Unit.METERS
+            )
+            / self.pass_velocity_estimate_ms
+        )
 
     def add_synthetic_event(self, dataset: EventDataset) -> EventDataset:
         pitch = dataset.metadata.pitch_dimensions
@@ -118,13 +139,26 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
                     + (next_event.timestamp - event.timestamp) / 10
                 )
 
+            # Some providers stamp the ball's arrival at the moment of the next
+            # action rather than when it actually arrived - Opta does this for
+            # every completed pass, since `receive_timestamp` is taken from the
+            # next on-ball event. That leaves no room for the carry in between,
+            # so it would be emitted with zero (or negative) duration and an
+            # infinite implied speed. Fall back to the ball's estimated flight
+            # time, the same estimate the ball-receipt generator uses.
+            if last_timestamp >= next_event.timestamp:
+                last_timestamp = min(
+                    self._estimated_arrival(event, pitch),
+                    next_event.timestamp,
+                )
+
             carry_duration = next_event.timestamp - last_timestamp
-            # implausible speed (teleport between disconnected events)
+            # implausible speed (teleport between disconnected events), and
+            # zero-length carries the estimate above could not rescue
             carry_seconds = carry_duration.total_seconds()
-            if (
-                carry_seconds > 0
-                and distance_meters / carry_seconds > self.max_speed_mps
-            ):
+            if carry_seconds <= 0:
+                continue
+            if distance_meters / carry_seconds > self.max_speed_mps:
                 continue
 
             generic_event_args = {
