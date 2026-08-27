@@ -36,6 +36,7 @@ from kloppy.domain import (
 )
 from kloppy import opta
 from kloppy.infra.serializers.event.statsperform.deserializer import (
+    _apply_goal_shot_timestamps,
     _get_end_coordinates,
     _normalize_suspension_gaps,
 )
@@ -337,12 +338,42 @@ class TestOptaShotEvent:
         )
 
     def test_timestamp_goal(self, dataset: EventDataset):
-        """Check timestamp from qualifier 374 in case of goal"""
+        """A goal is timestamped when the shot was struck, not when it went in.
+
+        Opta stamps the goal event at the moment the ball crossed the line and
+        reports the shot itself in qualifier 374; every other shot is already
+        stamped when it was taken.
+        """
         goal = dataset.get_event_by_id("2318695229")
         assert goal.timestamp == (
             _parse_f24_datetime("2018-09-23T16:07:48.525")  # event timestamp
             - _parse_f24_datetime("2018-09-23T16:05:28.873")  # period start
         )
+
+    def test_goal_shot_timestamp_reaches_the_preceding_pass(
+        self, dataset: EventDataset
+    ):
+        """The corrected goal time must be visible to the lookaheads.
+
+        The deserializer reads the RAW next event to fill in a pass's receiver
+        and receive time, so a correction applied while building the goal's
+        ShotEvent would be invisible there - leaving the ball arriving at the
+        shooter after it had already crossed the line. Guards the layering.
+        """
+        goal = dataset.get_event_by_id("2318695229")
+        assist = next(
+            (
+                e
+                for e in reversed(dataset.events[: dataset.events.index(goal)])
+                if e.event_type == EventType.PASS
+                and e.result == PassResult.COMPLETE
+                and e.team == goal.team
+            ),
+            None,
+        )
+        if assist is None or assist.receive_timestamp is None:
+            pytest.skip("fixture has no completed pass before this goal")
+        assert assist.receive_timestamp <= goal.timestamp
 
     def test_shot_end_coordinates(self):
         """Shots should receive the correct end coordinates."""
@@ -613,14 +644,13 @@ class TestOptaAbandonment:
                 f"{row.key.player or row.key.team}"
             )
 
-    def test_goal_timestamp_qualifier_is_shifted_with_the_event(self):
-        """Qualifier 374 must move with the event timestamp across a suspension.
+    def test_goal_is_shifted_across_a_suspension_like_any_event(self):
+        """A goal after a suspension is shifted with the rest of the period.
 
-        Goal events override their timestamp with qualifier 374, which carries an
-        absolute wall-clock time of its own. Leaving it unshifted strands a goal
-        scored after the suspension by the length of the suspension, which drives
-        the possession-state breakdown negative (NWSL Utah Royals - Washington
-        Spirit, 2026-07-30, suspended 1h20m in the first half).
+        Goals are moved onto their qualifier-374 shot time before the suspension
+        shift runs, so from that point they are ordinary events and the shift
+        covers them (NWSL Utah Royals - Washington Spirit, 2026-07-30, suspended
+        1h20m in the first half).
         """
         kickoff = datetime(2026, 7, 30, 2, 8, 34)
         gap = timedelta(minutes=80)
@@ -655,13 +685,34 @@ class TestOptaAbandonment:
             {374: goal_timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")},
         )
 
+        _apply_goal_shot_timestamps([before_gap, after_gap, goal])
         _normalize_suspension_gaps([before_gap, after_gap, goal])
 
         assert goal.timestamp == kickoff + timedelta(minutes=27, seconds=41)
-        assert (
-            datetime.strptime(goal.qualifiers[374], "%Y-%m-%d %H:%M:%S.%f")
-            == goal.timestamp
+
+    def test_corrupt_goal_shot_timestamp_is_ignored(self):
+        """A qualifier far from the event timestamp must not be adopted.
+
+        Feeds carry placeholder dates in qualifier 374. Taking one would drag the
+        rest of the period with it, because the suspension shift reads the same
+        timestamps and would see a multi-year "gap".
+        """
+        event_time = datetime(2026, 7, 30, 2, 32, 15, tzinfo=timezone.utc)
+        goal = OptaEvent(
+            id="1",
+            event_id=1,
+            type_id=16,
+            period_id=1,
+            time_min=27,
+            time_sec=41,
+            x=50.0,
+            y=50.0,
+            timestamp=event_time,
+            last_modified=event_time,
+            qualifiers={374: "2023-11-06 00:43:37.403"},
         )
+        _apply_goal_shot_timestamps([goal])
+        assert goal.timestamp == event_time
 
     def test_events_without_the_goal_qualifier_are_untouched(self):
         """A shift on a non-goal event must not invent a qualifier 374."""

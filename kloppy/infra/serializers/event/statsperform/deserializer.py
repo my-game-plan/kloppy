@@ -64,11 +64,19 @@ EVENT_TYPE_OFFSIDE_PROVOKED = 55
 # routine in-play delays (injuries, VAR) so only true match suspensions trigger.
 SUSPENSION_GAP_THRESHOLD = timedelta(minutes=15)
 
-# Qualifier 374 carries an absolute wall-clock time of its own (the actual time of
-# the shot on goal events) and overrides the event timestamp downstream, so it has
-# to be shifted alongside it when a suspension gap is normalized.
+# Opta stamps a goal event at the moment the ball crossed the line and reports the
+# moment the shot was struck separately, in qualifier 374 ("Goal Shot timestamp":
+# "Specifies the actual time of the shot for all goal events, the events will
+# continue to have the timestamp of the goal itself"). Every other shot is already
+# stamped when it was taken. The qualifier is expressed in London time on both the
+# MA3 and F24 feeds, like the event timestamps themselves.
 EVENT_QUALIFIER_GOAL_TIMESTAMP = 374
 GOAL_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
+# The shot precedes the goal by the ball's flight, so a sane qualifier sits a
+# second or so before the event. Values far outside that are corrupt (feeds carry
+# placeholder dates) or wrongly zoned, and adopting one would drag the whole
+# period with it through the suspension shift.
+MAX_GOAL_SHOT_CORRECTION = timedelta(seconds=30)
 
 EVENT_TYPE_PASS = 1
 EVENT_TYPE_OFFSIDE_PASS = 2
@@ -795,6 +803,57 @@ def _get_event_type_name(type_id: int) -> str:
     return event_type_names.get(type_id, "unknown")
 
 
+def _apply_goal_shot_timestamps(raw_events: List[OptaEvent]) -> None:
+    """Move goal events onto the moment the shot was struck.
+
+    Opta reports two times for a goal: the event timestamp is when the ball
+    crossed the line, and qualifier 374 is when the shot was taken. Non-goal
+    shots only have the latter, so leaving goals on the event timestamp puts
+    them roughly 0.6-0.8s (the ball's flight) later than comparable shots, and
+    anything derived from the gap between consecutive actions inherits that.
+
+    This runs over the raw events, before anything reads a timestamp, because
+    the deserializer looks ahead into the raw list - to fill in a pass's
+    receiver and receive time, for instance. A correction applied while building
+    the kloppy event is invisible to those lookaheads, which would leave the
+    ball arriving at the shooter after the ball had already crossed the line.
+    """
+    for raw_event in raw_events:
+        if raw_event.type_id != EVENT_TYPE_SHOT_GOAL:
+            continue
+        raw_value = (raw_event.qualifiers or {}).get(
+            EVENT_QUALIFIER_GOAL_TIMESTAMP
+        )
+        if not raw_value:
+            continue
+        try:
+            naive = datetime.strptime(raw_value, GOAL_TIMESTAMP_FORMAT)
+        except ValueError:
+            logger.warning(
+                "Could not parse qualifier %s value %r on event %s; leaving "
+                "the goal on the event timestamp.",
+                EVENT_QUALIFIER_GOAL_TIMESTAMP,
+                raw_value,
+                raw_event.id,
+            )
+            continue
+        shot_timestamp = (
+            pytz.timezone("Europe/London")
+            .localize(naive)
+            .astimezone(pytz.utc)
+        )
+        if abs(shot_timestamp - raw_event.timestamp) > MAX_GOAL_SHOT_CORRECTION:
+            logger.warning(
+                "Qualifier %s on event %s is %s away from the event timestamp; "
+                "ignoring it and leaving the goal on the event timestamp.",
+                EVENT_QUALIFIER_GOAL_TIMESTAMP,
+                raw_event.id,
+                abs(shot_timestamp - raw_event.timestamp),
+            )
+            continue
+        raw_event.timestamp = shot_timestamp
+
+
 def _normalize_suspension_gaps(raw_events: List[OptaEvent]) -> None:
     """Shift wall-clock event timestamps back across abandonment/suspension gaps.
 
@@ -812,10 +871,8 @@ def _normalize_suspension_gaps(raw_events: List[OptaEvent]) -> None:
     `SUSPENSION_GAP_THRESHOLD`. The END_PERIOD event is included in the walk,
     so `period.end_timestamp` (set later from that event) is also corrected.
 
-    Goal events carry a second, independent wall-clock time in qualifier 374 that
-    overrides the event timestamp during deserialization. It is shifted by the same
-    amount, otherwise a goal scored after a suspension keeps its raw wall-clock time
-    and lands the length of the suspension ahead of its neighbours in the timeline.
+    Goals have already been moved onto their shot timestamp by
+    `_apply_goal_shot_timestamps`, so they are shifted here like any other event.
     """
     shift_per_period: Dict[int, timedelta] = {}
     prev_per_period: Dict[int, OptaEvent] = {}
@@ -824,7 +881,6 @@ def _normalize_suspension_gaps(raw_events: List[OptaEvent]) -> None:
         shift = shift_per_period.get(period_id, timedelta(0))
         if shift:
             raw_event.timestamp -= shift
-            _shift_goal_timestamp_qualifier(raw_event, shift)
         prev = prev_per_period.get(period_id)
         if prev is not None:
             wall_delta = raw_event.timestamp - prev.timestamp
@@ -849,34 +905,8 @@ def _normalize_suspension_gaps(raw_events: List[OptaEvent]) -> None:
                     raw_event.time_sec,
                 )
                 raw_event.timestamp -= excess
-                _shift_goal_timestamp_qualifier(raw_event, excess)
                 shift_per_period[period_id] = shift + excess
         prev_per_period[period_id] = raw_event
-
-
-def _shift_goal_timestamp_qualifier(
-    raw_event: OptaEvent, shift: timedelta
-) -> None:
-    """Shift the absolute time in qualifier 374 back by `shift`, if present."""
-    raw_value = (raw_event.qualifiers or {}).get(
-        EVENT_QUALIFIER_GOAL_TIMESTAMP
-    )
-    if not raw_value:
-        return
-    try:
-        shifted = datetime.strptime(raw_value, GOAL_TIMESTAMP_FORMAT) - shift
-    except ValueError:
-        logger.warning(
-            "Could not parse qualifier %s value %r on event %s; leaving it "
-            "unshifted across the suspension gap.",
-            EVENT_QUALIFIER_GOAL_TIMESTAMP,
-            raw_value,
-            raw_event.id,
-        )
-        return
-    raw_event.qualifiers[EVENT_QUALIFIER_GOAL_TIMESTAMP] = shifted.strftime(
-        GOAL_TIMESTAMP_FORMAT
-    )
 
 
 class StatsPerformInputs(NamedTuple):
@@ -920,6 +950,10 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                 for event in events_parser.extract_events()
                 if event.type_id != EVENT_TYPE_DELETED_EVENT
             ]
+
+            # Before anything reads a timestamp, and before the suspension shift
+            # so goals are shifted like any other event from here on.
+            _apply_goal_shot_timestamps(raw_events)
 
             if inputs.event_feed.upper() == "F24":
                 _normalize_suspension_gaps(raw_events)
@@ -1047,27 +1081,6 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                         EVENT_TYPE_SHOT_SAVED,
                         EVENT_TYPE_SHOT_GOAL,
                     ):
-                        if raw_event.type_id == EVENT_TYPE_SHOT_GOAL:
-                            if (
-                                EVENT_QUALIFIER_GOAL_TIMESTAMP
-                                in raw_event.qualifiers
-                            ):
-                                # Qualifier 374 specifies the actual time of the shot for all goal events
-                                # It uses London timezone for both MA3 and F24 feeds
-                                naive_datetime = datetime.strptime(
-                                    raw_event.qualifiers[
-                                        EVENT_QUALIFIER_GOAL_TIMESTAMP
-                                    ],
-                                    GOAL_TIMESTAMP_FORMAT,
-                                )
-                                timezone = pytz.timezone("Europe/London")
-                                aware_datetime = timezone.localize(
-                                    naive_datetime
-                                )
-                                generic_event_kwargs["timestamp"] = (
-                                    aware_datetime.astimezone(pytz.utc)
-                                    - period.start_timestamp
-                                )
                         shot_event_kwargs = _parse_shot(raw_event)
                         kwargs = {}
                         kwargs.update(generic_event_kwargs)
