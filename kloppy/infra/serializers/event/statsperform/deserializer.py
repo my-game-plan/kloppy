@@ -72,11 +72,13 @@ SUSPENSION_GAP_THRESHOLD = timedelta(minutes=15)
 # MA3 and F24 feeds, like the event timestamps themselves.
 EVENT_QUALIFIER_GOAL_TIMESTAMP = 374
 GOAL_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
-# The shot precedes the goal by the ball's flight, so a sane qualifier sits a
-# second or so before the event. Values far outside that are corrupt (feeds carry
-# placeholder dates) or wrongly zoned, and adopting one would drag the whole
-# period with it through the suspension shift.
-MAX_GOAL_SHOT_CORRECTION = timedelta(seconds=30)
+# The correction is the ball's flight from the shot to the goal line. Measured
+# over 644 goals across two competitions it runs from 0.0 to 2.3s, and is always
+# negative. Anything outside that is a placeholder date (this repo's own fixture
+# carries a 2023 value on a 2018 match) or a wrongly zoned one, and adopting it
+# would drag the whole period along through the suspension shift - see
+# TestOptaMetadata::test_periods, which fails without this bound.
+MAX_GOAL_SHOT_CORRECTION = timedelta(seconds=5)
 
 EVENT_TYPE_PASS = 1
 EVENT_TYPE_OFFSIDE_PASS = 2
