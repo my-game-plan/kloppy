@@ -337,12 +337,28 @@ class TestOptaShotEvent:
         )
 
     def test_timestamp_goal(self, dataset: EventDataset):
-        """Check timestamp from qualifier 374 in case of goal"""
+        """A goal keeps the F24 event clock, like every other event.
+
+        This goal also carries qualifier 374 ("2018-09-23 16:07:48.525"), a
+        second wall-clock time 200ms away from the event timestamp. Adopting it
+        put goals on a different clock from the events around them.
+        """
         goal = dataset.get_event_by_id("2318695229")
         assert goal.timestamp == (
-            _parse_f24_datetime("2018-09-23T16:07:48.525")  # event timestamp
+            _parse_f24_datetime("2018-09-23T16:07:48.325")  # event timestamp
             - _parse_f24_datetime("2018-09-23T16:05:28.873")  # period start
         )
+
+    def test_goal_timestamp_qualifier_stays_available(
+        self, dataset: EventDataset
+    ):
+        """Dropping the override must not lose qualifier 374.
+
+        Consumers that want Opta's own goal time (e.g. video sync) can still
+        read it off the raw event.
+        """
+        goal = dataset.get_event_by_id("2318695229")
+        assert goal.raw_event.qualifiers[374] == "2018-09-23 16:07:48.525"
 
     def test_shot_end_coordinates(self):
         """Shots should receive the correct end coordinates."""
@@ -613,14 +629,13 @@ class TestOptaAbandonment:
                 f"{row.key.player or row.key.team}"
             )
 
-    def test_goal_timestamp_qualifier_is_shifted_with_the_event(self):
-        """Qualifier 374 must move with the event timestamp across a suspension.
+    def test_goal_timestamps_are_shifted_like_any_other_event(self):
+        """A goal after a suspension is shifted with the rest of the period.
 
-        Goal events override their timestamp with qualifier 374, which carries an
-        absolute wall-clock time of its own. Leaving it unshifted strands a goal
-        scored after the suspension by the length of the suspension, which drives
-        the possession-state breakdown negative (NWSL Utah Royals - Washington
-        Spirit, 2026-07-30, suspended 1h20m in the first half).
+        Goals used to override their timestamp with qualifier 374, which meant
+        the shift had to be applied to that qualifier too. Now that goals keep
+        the F24 event clock, the ordinary shift covers them (NWSL Utah Royals -
+        Washington Spirit, 2026-07-30, suspended 1h20m in the first half).
         """
         kickoff = datetime(2026, 7, 30, 2, 8, 34)
         gap = timedelta(minutes=80)
@@ -658,10 +673,6 @@ class TestOptaAbandonment:
         _normalize_suspension_gaps([before_gap, after_gap, goal])
 
         assert goal.timestamp == kickoff + timedelta(minutes=27, seconds=41)
-        assert (
-            datetime.strptime(goal.qualifiers[374], "%Y-%m-%d %H:%M:%S.%f")
-            == goal.timestamp
-        )
 
     def test_events_without_the_goal_qualifier_are_untouched(self):
         """A shift on a non-goal event must not invent a qualifier 374."""
