@@ -19,6 +19,7 @@ from kloppy.domain import (
 )
 from kloppy.domain.models.event import PassResult, PressureEvent, SetPieceQualifier
 from kloppy.domain.services.synthetic_event_generators.synthetic_event_generator import (
+    PASS_VELOCITY_ESTIMATE_MS,
     SyntheticEventGenerator,
 )
 
@@ -41,6 +42,26 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
         self.max_length_meters = kwargs.get("max_length_meters") or 60
         self.max_duration = kwargs.get("max_duration") or timedelta(seconds=10)
         self.max_speed_mps = kwargs.get("max_speed_mps") or 12.0
+        self.pass_velocity_estimate_ms = (
+            kwargs.get("pass_velocity_estimate_ms")
+            or PASS_VELOCITY_ESTIMATE_MS
+        )
+
+    def _estimated_arrival(self, event, pitch):
+        """When the ball plausibly reached the receiver, from its flight time.
+
+        Used when the provider's own arrival time is not usable because it was
+        taken from the next action rather than measured.
+        """
+        receiver_coordinates = getattr(event, "receiver_coordinates", None)
+        if receiver_coordinates is None or event.coordinates is None:
+            return event.timestamp
+        return event.timestamp + timedelta(
+            seconds=pitch.distance_between(
+                event.coordinates, receiver_coordinates, Unit.METERS
+            )
+            / self.pass_velocity_estimate_ms
+        )
 
     def add_synthetic_event(self, dataset: EventDataset) -> EventDataset:
         pitch = dataset.metadata.pitch_dimensions
@@ -118,9 +139,30 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
                     + (next_event.timestamp - event.timestamp) / 10
                 )
 
+            # Some providers stamp the ball's arrival at the moment of the next
+            # action rather than when it actually arrived - Opta does this for
+            # every completed pass, since `receive_timestamp` is taken from the
+            # next on-ball event. That leaves no room for the carry in between,
+            # so it would be emitted with zero (or negative) duration and an
+            # infinite implied speed. Fall back to the ball's estimated flight
+            # time, the same estimate the ball-receipt generator uses.
+            if last_timestamp >= next_event.timestamp:
+                last_timestamp = min(
+                    self._estimated_arrival(event, pitch),
+                    next_event.timestamp,
+                )
+
             carry_duration = next_event.timestamp - last_timestamp
-            # implausible speed (teleport between disconnected events)
             carry_seconds = carry_duration.total_seconds()
+            # The speed guard catches a teleport: two events wrongly linked, so
+            # the ball appears to cover ground it never covered. Judging that
+            # needs a duration we actually have. Where even the estimate above
+            # does not fit in the gap, the displacement is still real - two
+            # recorded positions inside one possession - and only the timing is
+            # unknown. Dropping the carry there hands its distance to the
+            # preceding pass, turning "received, carried, shot" into a through
+            # ball finished first time, which is the worse error. So only judge
+            # the speed when the duration is a real interval.
             if (
                 carry_seconds > 0
                 and distance_meters / carry_seconds > self.max_speed_mps

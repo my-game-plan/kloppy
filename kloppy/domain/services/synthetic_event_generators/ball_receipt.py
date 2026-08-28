@@ -18,6 +18,7 @@ from kloppy.domain import (
     Unit,
 )
 from kloppy.domain.services.synthetic_event_generators.synthetic_event_generator import (
+    PASS_VELOCITY_ESTIMATE_MS,
     SyntheticEventGenerator,
 )
 
@@ -36,9 +37,9 @@ POSSESSING_ON_BALL = (
 class SyntheticBallReceiptGenerator(SyntheticEventGenerator):
     def __init__(self, event_factory: Optional[EventFactory] = None, **kwargs):
         self.event_factory = event_factory or EventFactory()
-        # an estimate of the velocity of a pass (expressed in meters/second)
         self.pass_velocity_estimate_ms = (
-            kwargs.get("pass_velocity_estimate_ms") or 13
+            kwargs.get("pass_velocity_estimate_ms")
+            or PASS_VELOCITY_ESTIMATE_MS
         )
 
     def add_synthetic_event(self, dataset: EventDataset) -> EventDataset:

@@ -4,6 +4,9 @@ from typing import List, Dict
 from kloppy.domain import AttackingDirection, Frame, Ground, Period
 
 from .event_factory import EventFactory, create_event
+from .synthetic_event_generators.synthetic_event_generator import (
+    PASS_VELOCITY_ESTIMATE_MS,
+)
 from .transformers import DatasetTransformer, DatasetTransformerBuilder
 
 # NOT YET: from .enrichers import TrackingPossessionEnricher
@@ -69,6 +72,7 @@ def attacking_directions_from_multi_frames(
 
 
 __all__ = [
+    "PASS_VELOCITY_ESTIMATE_MS",
     "DatasetTransformer",
     "DatasetTransformerBuilder",
     "EventFactory",
