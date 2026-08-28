@@ -19,6 +19,7 @@ from kloppy.domain import (
 )
 from kloppy.domain.models.event import PassResult, PressureEvent, SetPieceQualifier
 from kloppy.domain.services.synthetic_event_generators.synthetic_event_generator import (
+    PASS_VELOCITY_ESTIMATE_MS,
     SyntheticEventGenerator,
 )
 
@@ -41,10 +42,9 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
         self.max_length_meters = kwargs.get("max_length_meters") or 60
         self.max_duration = kwargs.get("max_duration") or timedelta(seconds=10)
         self.max_speed_mps = kwargs.get("max_speed_mps") or 12.0
-        # an estimate of the velocity of a pass (expressed in meters/second),
-        # matching SyntheticBallReceiptGenerator
         self.pass_velocity_estimate_ms = (
-            kwargs.get("pass_velocity_estimate_ms") or 13
+            kwargs.get("pass_velocity_estimate_ms")
+            or PASS_VELOCITY_ESTIMATE_MS
         )
 
     def _estimated_arrival(self, event, pitch):
