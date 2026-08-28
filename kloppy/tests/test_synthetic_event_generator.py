@@ -126,13 +126,16 @@ class TestSyntheticEventGenerator:
             > 0.80
         )
 
-    def test_synthetic_carries_always_have_a_duration(self, base_dir):
-        """A generated carry must span real time.
+    def test_synthetic_carries_get_a_duration_where_the_feed_allows(
+        self, base_dir
+    ):
+        """A generated carry should span real time wherever that is knowable.
 
         Opta reports a completed pass's arrival as the timestamp of the next
         on-ball event, so the carry in between would start exactly when it ends
         - zero duration, infinite implied speed. On this fixture that was 251 of
-        311 generated carries.
+        311 generated carries. Estimating the ball's flight time instead
+        recovers a real duration for nearly all of them.
         """
         dataset = self._load_dataset_statsperform(base_dir)
         dataset = dataset.add_synthetic_event(EventType.CARRY)
@@ -145,10 +148,38 @@ class TestSyntheticEventGenerator:
             for carry in carries
             if carry.end_timestamp - carry.timestamp <= timedelta(0)
         ]
-        assert not degenerate, (
-            f"{len(degenerate)} of {len(carries)} carries have a duration "
-            f"of zero or less"
+        assert len(degenerate) / len(carries) < 0.10, (
+            f"{len(degenerate)} of {len(carries)} carries still have a "
+            f"duration of zero or less"
         )
+
+    def test_carries_survive_an_unknowable_duration(self, base_dir):
+        """A carry whose duration cannot be established must still be emitted.
+
+        Where the gap to the next action is smaller than the ball's flight
+        time, no estimate produces a positive duration. Dropping the carry
+        there would hand its distance to the preceding pass, so a shot after
+        "received, carried" reads as a through ball finished first time - the
+        error this generator caused on Opta goals before it was fixed.
+
+        So the remaining zero-duration carries must be present, not absent.
+        """
+        dataset = self._load_dataset_statsperform(base_dir)
+        dataset = dataset.add_synthetic_event(EventType.CARRY)
+
+        carries = dataset.find_all("carry")
+        degenerate = [
+            carry
+            for carry in carries
+            if carry.end_timestamp - carry.timestamp <= timedelta(0)
+        ]
+        assert degenerate, (
+            "this fixture is expected to contain carries the feed gives no "
+            "usable interval for; none were emitted, so they are being dropped"
+        )
+        # and they carry a real displacement - that is why they are kept
+        for carry in degenerate:
+            assert carry.coordinates != carry.end_coordinates
 
     def test_synthetic_ball_receipt_generator(self, base_dir):
 

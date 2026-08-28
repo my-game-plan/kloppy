@@ -153,12 +153,20 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
                 )
 
             carry_duration = next_event.timestamp - last_timestamp
-            # implausible speed (teleport between disconnected events), and
-            # zero-length carries the estimate above could not rescue
             carry_seconds = carry_duration.total_seconds()
-            if carry_seconds <= 0:
-                continue
-            if distance_meters / carry_seconds > self.max_speed_mps:
+            # The speed guard catches a teleport: two events wrongly linked, so
+            # the ball appears to cover ground it never covered. Judging that
+            # needs a duration we actually have. Where even the estimate above
+            # does not fit in the gap, the displacement is still real - two
+            # recorded positions inside one possession - and only the timing is
+            # unknown. Dropping the carry there hands its distance to the
+            # preceding pass, turning "received, carried, shot" into a through
+            # ball finished first time, which is the worse error. So only judge
+            # the speed when the duration is a real interval.
+            if (
+                carry_seconds > 0
+                and distance_meters / carry_seconds > self.max_speed_mps
+            ):
                 continue
 
             generic_event_args = {
