@@ -188,6 +188,38 @@ PERIOD_BOUNDARY_ACTION_IDS = frozenset(
     }
 )
 
+# The `offsets` block of the feed, keyed by period id. It states where each
+# period kicks off and ends, and is the only place the feed distinguishes
+# the kickoff from the period-start marker. See
+# _advance_starts_to_kickoff for when it can be believed.
+OFFSET_KEY_BY_PERIOD = {
+    1: "1st half",
+    2: "2nd half",
+    3: "1st half of additional time",
+    4: "2nd half of additional time",
+    5: "Penalty shootout",
+}
+
+# How close the first action of a period must sit to the kickoff the
+# offsets block claims, for that claim to be believed. A kickoff pass
+# follows the whistle within a second; 3 s absorbs whole-second stamping
+# and a first marker that is a touch late without admitting anything that
+# is not plausibly the restart itself.
+KICKOFF_EVIDENCE_TOLERANCE = 3.0
+
+# ...but a fixed tolerance has no power once the gap is itself that small:
+# a claimed kickoff 2 s after the marker sits within 3 s of a first action
+# at 0, so a flat test would wave through every small gap without the dead
+# zone actually corroborating anything. Scaling the tolerance with the gap
+# keeps the test meaningful all the way down, so a 1-2 s correction is
+# taken when the evidence really is there and refused when it is not.
+KICKOFF_EVIDENCE_RATIO = 0.5
+
+# A period-start marker is stamped by hand, so the gap to the real kickoff
+# is an operator's reaction time. Beyond a minute it is something else and
+# the offsets block is describing a different timeline, not a late click.
+MAX_KICKOFF_ADVANCE = 60.0
+
 # Ball circulation: none of it is possible during a penalty shootout, which
 # is kicks, saves and goals and nothing else. Real shootouts (720080,
 # 671052) carry only shot, save and goal-state markers, while a half of
@@ -640,6 +672,88 @@ def _parse_pass(raw_event: Dict, action_id: int, team: Team) -> Dict:
         receive_timestamp=None,
         qualifiers=qualifiers,
     )
+
+
+def _advance_starts_to_kickoff(
+    bounds: List[Tuple[int, float, float]],
+    raw_events: Dict,
+    play_seconds: List[float],
+) -> List[Tuple[int, float, float]]:
+    """Move a period start that was stamped before the ball was kicked.
+
+    In some matches the period-start marker is clicked while the teams are
+    still lining up, several seconds before the restart. Since every event
+    timestamp is measured from the period start, the whole period then
+    reads a few seconds late. Nothing in the data looks wrong - the match
+    is internally consistent - and it only surfaces against video, where a
+    clip cut at the event's timestamp opens after the action it should
+    show. In 765331 (Hoogstraten - Merelbeke) the goals landed 6.9 s and
+    11.8 s late against the club's own recording.
+
+    The feed states the correction itself. Its ``offsets`` block gives each
+    period's kickoff, and there the *end* values agree with the HALF_TIME
+    and MATCH_END markers to within 0.2 s while the starts do not, so the
+    block is on the same clock as the markers and disagrees only about
+    where periods begin.
+
+    The block cannot simply be believed, though: for matches where
+    SmrtStats also deliver the video, it describes the cut they deliver
+    rather than the timeline the markers are stamped in, and its starts run
+    anywhere from 6 s to a minute ahead of period-start markers that are
+    already correct. Adopting those would break periods that are fine.
+
+    What separates the two is the dead zone. If the marker really was
+    clicked early, the period opens with a stretch of nothing and the first
+    action lands on the claimed kickoff: in 765331 the halves open at 8.33 s
+    and 2846.62 s against claimed kickoffs of 8 and 2846. Where the block is
+    describing a different cut, the first action sits right after the
+    marker instead, seconds before the claimed kickoff. So the start is only
+    advanced when the period's first action corroborates it.
+
+    That test is what makes this safe to apply to every SmrtStats feed:
+    it fails closed, and a period whose evidence does not line up is left
+    exactly as the markers describe it.
+
+    The tolerance scales with the gap so the test keeps its power at small
+    ones - a flat window would swallow every 1-2 s claim, since a first
+    action at 0 already sits inside it. It earns those small corrections
+    rather than assuming them: across 1797 periods, a period whose gap is
+    0 opens at a median of 0.0 s and p90 of 1.2 s, and against that
+    baseline the corroboration rate runs 2-3x what chance alone would
+    give at every gap size, 2-4 s included. A few seconds of sync is worth
+    having, and this is the evidence that they are not coincidence.
+    """
+    offsets = raw_events.get("offsets") or {}
+    if not offsets:
+        return bounds
+
+    advanced = []
+    for pid, start, end in bounds:
+        offset_key = OFFSET_KEY_BY_PERIOD.get(pid)
+        kickoff = (
+            (offsets.get(offset_key) or {}).get("start")
+            if offset_key
+            else None
+        )
+        own_play = [second for second in play_seconds if start <= second < end]
+        if (
+            kickoff is None
+            or not start < kickoff < end
+            or kickoff - start > MAX_KICKOFF_ADVANCE
+            or not own_play
+        ):
+            advanced.append((pid, start, end))
+            continue
+
+        tolerance = min(
+            KICKOFF_EVIDENCE_TOLERANCE,
+            (kickoff - start) * KICKOFF_EVIDENCE_RATIO,
+        )
+        if abs(min(own_play) - kickoff) > tolerance:
+            advanced.append((pid, start, end))
+            continue
+        advanced.append((pid, float(kickoff), end))
+    return advanced
 
 
 def _license_period_starts(
@@ -1180,6 +1294,11 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
             if own_play:
                 end = max(end, max(own_play))
             checked.append((pid, start, end))
+
+        # Last, so the evidence is read against boundaries that are already
+        # settled: a start still liable to be relocated or dropped would be
+        # the wrong thing to measure a kickoff against.
+        checked = _advance_starts_to_kickoff(checked, raw_events, play_seconds)
 
         return [
             Period(
