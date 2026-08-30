@@ -677,7 +677,7 @@ def _parse_pass(raw_event: Dict, action_id: int, team: Team) -> Dict:
 def _advance_starts_to_kickoff(
     bounds: List[Tuple[int, float, float]],
     raw_events: Dict,
-    play_seconds: List[float],
+    open_play_seconds: List[float],
 ) -> List[Tuple[int, float, float]]:
     """Move a period start that was stamped before the ball was kicked.
 
@@ -735,7 +735,15 @@ def _advance_starts_to_kickoff(
             if offset_key
             else None
         )
-        own_play = [second for second in play_seconds if start <= second < end]
+        # Ball circulation only. Every other marker list opens with the
+        # lineup: formations and one position marker per player, all
+        # stamped at the period's first second. Measuring the dead zone
+        # against those makes the period look like it opened instantly and
+        # the test refuses every time, which is exactly the bug this
+        # replaced - the rule was inert on real feeds.
+        own_play = [
+            second for second in open_play_seconds if start <= second < end
+        ]
         if (
             kickoff is None
             or not start < kickoff < end
@@ -1298,7 +1306,9 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
         # Last, so the evidence is read against boundaries that are already
         # settled: a start still liable to be relocated or dropped would be
         # the wrong thing to measure a kickoff against.
-        checked = _advance_starts_to_kickoff(checked, raw_events, play_seconds)
+        checked = _advance_starts_to_kickoff(
+            checked, raw_events, open_play_seconds
+        )
 
         return [
             Period(
