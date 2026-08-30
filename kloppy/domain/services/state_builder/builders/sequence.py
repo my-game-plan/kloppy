@@ -11,6 +11,7 @@ from kloppy.domain import (
     BallOutEvent,
     FoulCommittedEvent,
     ShotEvent,
+    OwnGoalForEvent,
     SetPieceQualifier,
     GoalkeeperEvent,
     GoalkeeperActionType,
@@ -52,7 +53,7 @@ EXCLUDED_OFF_BALL_EVENTS = (
     FormationChangeEvent,
 )
 
-CLOSE_SEQUENCE = (BallOutEvent, FoulCommittedEvent, ShotEvent)
+CLOSE_SEQUENCE = (BallOutEvent, FoulCommittedEvent, ShotEvent, OwnGoalForEvent)
 
 
 def is_ball_winning_defensive_action(event: Event) -> bool:
@@ -69,7 +70,7 @@ def is_failed_pass(event: Event) -> bool:
 
 
 def is_possessing_event(event: Event) -> bool:
-    if isinstance(event, (PassEvent, CarryEvent, RecoveryEvent, TakeOnEvent, ShotEvent)):
+    if isinstance(event, (PassEvent, CarryEvent, RecoveryEvent, TakeOnEvent, ShotEvent, OwnGoalForEvent)):
         return True
     elif isinstance(event, GoalkeeperEvent) and event.get_qualifier_value(
         GoalkeeperQualifier
