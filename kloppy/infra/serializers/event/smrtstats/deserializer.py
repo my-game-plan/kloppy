@@ -1342,6 +1342,13 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
         events = []
         seen_fingerprints = set()
         seen_event_ids = set()
+        # SmrtStats has no raw kick-off marker, so we synthesise one:
+        # the first pass in each period, and the first pass after each
+        # goal, gets a KICK_OFF SetPieceQualifier (mirrors Wyscout v3).
+        # P5 (shootout) is excluded since it's dropped downstream.
+        kickoff_needed_periods: set = {
+            p.id for p in periods if p.id != 5
+        }
         # Iterate in preference order. For ET matches SmrtStats stores ET
         # events in two lists at once: the extra-time bucket
         # (first_extra_time_markers / second_extra_time_markers) AND
@@ -1452,6 +1459,13 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                         pass_event_args = _parse_pass(
                             raw_event, action_id, team
                         )
+                        if period.id in kickoff_needed_periods:
+                            pass_event_args["qualifiers"] = list(
+                                pass_event_args["qualifiers"] or []
+                            ) + [
+                                SetPieceQualifier(value=SetPieceType.KICK_OFF)
+                            ]
+                            kickoff_needed_periods.discard(period.id)
                         event = self.event_factory.build_pass(
                             **pass_event_args, **generic_event_kwargs
                         )
@@ -1460,6 +1474,8 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                         event = self.event_factory.build_shot(
                             **shot_event_kwargs, **generic_event_kwargs
                         )
+                        if action_id in (GOAL, OWN_GOAL) and period.id != 5:
+                            kickoff_needed_periods.add(period.id)
                     elif action_id in INTERCEPTION_IDS:
                         interception_kwargs = _parse_interception(raw_event)
                         event = self.event_factory.build_interception(

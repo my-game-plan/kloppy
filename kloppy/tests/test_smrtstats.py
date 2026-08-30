@@ -229,6 +229,29 @@ class TestSmrtStatsPassEvent:
             == SetPieceType.FREE_KICK
         )
 
+    def test_kick_off(self, dataset: EventDataset):
+        """It should add KICK_OFF qualifiers to the first pass of each period
+        and the first pass after each goal, matching other providers.
+
+        SmrtStats has no raw kick-off marker, so kloppy synthesises them.
+        """
+        kick_off_passes = [
+            e
+            for e in dataset.find_all("pass")
+            if SetPieceType.KICK_OFF
+            in e.get_qualifier_values(SetPieceQualifier)
+        ]
+        # 2 period starts + 3 goals in the fixture
+        assert len(kick_off_passes) == 5
+        kick_off_ids = {e.event_id for e in kick_off_passes}
+        assert kick_off_ids == {
+            "239947304",  # first pass of period 1
+            "239948170",  # first pass of period 2
+            "239947840",  # first pass after the first goal
+            "239948317",  # first pass after the second goal
+            "239948890",  # first pass after the third goal
+        }
+
     def test_interception(self, dataset: EventDataset):
         """It should split interception passes into two events"""
         interception = dataset.get_event_by_id("239947350")
