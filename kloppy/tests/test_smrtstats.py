@@ -9,6 +9,7 @@ import pytest
 from kloppy import smrtstats
 from kloppy.infra.serializers.event.smrtstats.deserializer import (
     SmrtStatsDeserializer,
+    _advance_starts_to_kickoff,
 )
 from kloppy.domain import (
     BallState,
@@ -1968,3 +1969,122 @@ class TestSmrtStatsStrayPeriodStartMarker:
         assert [e["second"] for e in markers if e["action_id"] == 74] == [
             2859.0
         ]
+
+
+class TestAdvanceStartsToKickoff:
+    """A period start clicked before the restart, and when to trust the fix.
+
+    Both signatures below are real and appear in the same provider's feeds,
+    which is why the offsets block alone cannot decide it.
+    """
+
+    def _offsets(self, first_half, second_half):
+        return {
+            "offsets": {
+                "1st half": {"start": first_half, "end": 2835},
+                "2nd half": {"start": second_half, "end": 5783},
+                "1st half of additional time": None,
+                "2nd half of additional time": None,
+                "Penalty shootout": None,
+            }
+        }
+
+    def test_start_advances_when_the_first_action_confirms_the_kickoff(self):
+        # 765331: markers at 1.00 and 2836.12, kickoffs 7.00s and 9.88s
+        # later, and each half opens right on the claimed kickoff.
+        bounds = [(1, 1.0, 2835.12), (2, 2836.12, 5783.99)]
+        play = [8.33, 1200.0, 2830.0, 2846.62, 4000.0, 5780.0]
+
+        assert _advance_starts_to_kickoff(
+            bounds, self._offsets(8, 2846), play
+        ) == [(1, 8.0, 2835.12), (2, 2846.0, 5783.99)]
+
+    def test_start_is_kept_when_play_precedes_the_claimed_kickoff(self):
+        # The other signature: the markers are already on the restart and
+        # the offsets block is describing the cut of the video the provider
+        # delivers. Advancing here would move correct periods by ~20s.
+        bounds = [(1, 0.0, 2827.0), (2, 2827.0, 5700.0)]
+        play = [0.5, 1200.0, 2820.0, 2834.0, 4000.0, 5690.0]
+
+        assert (
+            _advance_starts_to_kickoff(bounds, self._offsets(6, 2846), play)
+            == bounds
+        )
+
+    def test_a_dead_zone_that_does_not_land_on_the_kickoff_is_ignored(self):
+        # A period whose first action is a minute in tells us nothing about
+        # where the whistle went: the gap is not evidence of an early click.
+        bounds = [(1, 0.0, 2827.0), (2, 2892.0, 5700.0)]
+        play = [0.5, 1200.0, 2820.0, 2956.0, 4000.0, 5690.0]
+
+        assert (
+            _advance_starts_to_kickoff(bounds, self._offsets(6, 2911), play)
+            == bounds
+        )
+
+    def test_no_offsets_block_leaves_every_period_alone(self):
+        bounds = [(1, 1.0, 2835.12), (2, 2836.12, 5783.99)]
+        play = [8.33, 2846.62]
+
+        assert _advance_starts_to_kickoff(bounds, {}, play) == bounds
+        assert (
+            _advance_starts_to_kickoff(bounds, {"offsets": None}, play)
+            == bounds
+        )
+
+    def test_an_implausibly_large_advance_is_refused(self):
+        # Beyond a reaction time this is a different timeline, and the
+        # evidence test alone would wave it through.
+        bounds = [(1, 1.0, 2835.12), (2, 2836.12, 5783.99)]
+        play = [8.33, 2920.0]
+
+        assert _advance_starts_to_kickoff(
+            bounds, self._offsets(8, 2917), play
+        ) == [(1, 8.0, 2835.12), (2, 2836.12, 5783.99)]
+
+    def test_a_kickoff_at_or_before_the_marker_is_not_applied(self):
+        bounds = [(1, 8.0, 2835.12), (2, 2846.0, 5783.99)]
+        play = [8.33, 2846.62]
+
+        assert (
+            _advance_starts_to_kickoff(bounds, self._offsets(8, 2840), play)
+            == bounds
+        )
+
+    def test_a_kickoff_past_the_period_end_is_not_applied(self):
+        bounds = [(1, 1.0, 2835.12), (2, 2836.12, 5783.99)]
+        play = [8.33, 2846.62]
+
+        assert _advance_starts_to_kickoff(
+            bounds, self._offsets(2900, 2846), play
+        ) == [(1, 1.0, 2835.12), (2, 2846.0, 5783.99)]
+
+    def test_a_period_without_play_is_left_alone(self):
+        bounds = [(1, 1.0, 2835.12), (2, 2836.12, 5783.99)]
+        play = [8.33]
+
+        assert _advance_starts_to_kickoff(
+            bounds, self._offsets(8, 2846), play
+        ) == [(1, 8.0, 2835.12), (2, 2836.12, 5783.99)]
+
+    def test_a_small_gap_is_taken_when_the_dead_zone_matches_it(self):
+        # Worth taking: 2s of sync is 2s, and the dead zone is the right
+        # size for the claim. A flat tolerance could not tell this apart
+        # from the case below, which is why the tolerance scales.
+        bounds = [(1, 0.0, 2827.0), (2, 2827.0, 5700.0)]
+        play = [2.1, 1200.0, 2820.0, 2829.0, 4000.0, 5690.0]
+
+        assert _advance_starts_to_kickoff(
+            bounds, self._offsets(2, 2846), play
+        ) == [(1, 2.0, 2827.0), (2, 2827.0, 5700.0)]
+
+    def test_a_small_gap_without_a_dead_zone_is_refused(self):
+        # Same 2s claim, but the period opens immediately: nothing supports
+        # moving the boundary, so the markers stand.
+        bounds = [(1, 0.0, 2827.0), (2, 2827.0, 5700.0)]
+        play = [0.0, 1200.0, 2820.0, 2829.0, 4000.0, 5690.0]
+
+        assert (
+            _advance_starts_to_kickoff(bounds, self._offsets(2, 2846), play)
+            == bounds
+        )
