@@ -8,6 +8,12 @@ import pytest
 
 from kloppy import smrtstats
 from kloppy.infra.serializers.event.smrtstats.deserializer import (
+    ACCURATE_PASS,
+    BALL_RECEIVING,
+    FIRST_HALF,
+    HALF_TIME,
+    MATCH_END,
+    SECOND_HALF,
     SmrtStatsDeserializer,
     _advance_starts_to_kickoff,
 )
@@ -2088,3 +2094,80 @@ class TestAdvanceStartsToKickoff:
             _advance_starts_to_kickoff(bounds, self._offsets(2, 2846), play)
             == bounds
         )
+
+
+class TestKickoffAdvanceOnARealMarkerLayout:
+    """End to end through create_periods, with the lineup markers real feeds carry.
+
+    The unit tests above hand `_advance_starts_to_kickoff` a list of open
+    play. This one goes through `create_periods`, which is where the set is
+    chosen - the first version passed every non-boundary marker, and since
+    SmrtStats stamps formations and one position marker per player at the
+    period's first second, every period looked like it opened instantly and
+    the rule never fired on a real feed.
+    """
+
+    def _feed(self):
+        def marker(id_, action_id, second):
+            return {"id": id_, "action_id": action_id, "second": second}
+
+        first_half = [
+            # The lineup dump: formation plus positions, all at second 0.
+            marker(1, 82, 0.0),
+            marker(2, 4, 0.0),
+            marker(3, 5, 0.0),
+            marker(4, 6, 0.0),
+            marker(5, FIRST_HALF, 1.0),
+            # Ball circulation starts on the claimed kickoff, not the marker.
+            marker(6, ACCURATE_PASS, 8.33),
+            marker(7, BALL_RECEIVING, 9.1),
+            marker(8, ACCURATE_PASS, 1200.0),
+            marker(9, ACCURATE_PASS, 2830.0),
+            marker(10, HALF_TIME, 2835.12),
+        ]
+        second_half = [
+            marker(11, SECOND_HALF, 2836.12),
+            marker(12, 4, 2836.12),
+            marker(13, 5, 2836.12),
+            marker(14, ACCURATE_PASS, 2846.62),
+            marker(15, BALL_RECEIVING, 2848.0),
+            marker(16, ACCURATE_PASS, 5780.0),
+            marker(17, MATCH_END, 5783.99),
+        ]
+        return {
+            "first_half_markers": first_half,
+            "second_half_markers": second_half,
+            "offsets": {
+                "1st half": {"start": 8, "end": 2835},
+                "2nd half": {"start": 2846, "end": 5783},
+                "1st half of additional time": None,
+                "2nd half of additional time": None,
+                "Penalty shootout": None,
+            },
+        }
+
+    def test_both_starts_move_to_the_claimed_kickoff(self):
+        p1, p2 = SmrtStatsDeserializer.create_periods(self._feed())
+
+        assert p1.start_timestamp == timedelta(seconds=8)
+        assert p2.start_timestamp == timedelta(seconds=2846)
+
+    def test_period_ends_are_untouched(self):
+        p1, p2 = SmrtStatsDeserializer.create_periods(self._feed())
+
+        assert p1.end_timestamp == timedelta(seconds=2835.12)
+        assert p2.end_timestamp == timedelta(seconds=5783.99)
+
+    def test_lineup_markers_alone_do_not_corroborate_a_kickoff(self):
+        # Strip the ball circulation and only the lineup dump is left. The
+        # period then has no open play at all, so there is nothing to
+        # corroborate with and the markers must stand.
+        feed = self._feed()
+        feed["first_half_markers"] = [
+            m
+            for m in feed["first_half_markers"]
+            if m["action_id"] not in (ACCURATE_PASS, BALL_RECEIVING)
+        ]
+        p1 = SmrtStatsDeserializer.create_periods(feed)[0]
+
+        assert p1.start_timestamp == timedelta(seconds=1.0)
