@@ -1,3 +1,5 @@
+import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -221,3 +223,57 @@ class TestSkillCornerTracking:
         assert dataset.records[10].players_data[
             away_team_gk
         ].coordinates == Point(x=-41.97, y=-0.61)
+
+    def test_v3_unknown_player_id_is_skipped(
+        self, raw_data_v3: Path, meta_data_v3: Path, tmp_path: Path, caplog
+    ):
+        """A player id in the frames but not in the metadata must not fail the match.
+
+        SkillCorner ship this: the tracking file references a player id their
+        own match endpoint 404s on (observed on FC Eindhoven - MVV Maastricht,
+        2026-08-14, id 1075530). Before the guard, deserialize raised KeyError
+        and the whole match was lost.
+        """
+        unknown_id = 99999999
+        patched = tmp_path / "raw_with_unknown_player.jsonl"
+        with open(raw_data_v3) as src, open(patched, "w") as dst:
+            for line in src:
+                if not line.strip():
+                    continue
+                frame = json.loads(line)
+                if frame.get("player_data"):
+                    frame["player_data"].append(
+                        {
+                            "x": 1.0,
+                            "y": 2.0,
+                            "player_id": unknown_id,
+                            "is_detected": True,
+                        }
+                    )
+                dst.write(json.dumps(frame) + "\n")
+
+        with caplog.at_level(logging.WARNING):
+            dataset = skillcorner.load(
+                meta_data=meta_data_v3,
+                raw_data=patched,
+                coordinates="skillcorner",
+                include_empty_frames=True,
+            )
+
+        # Every frame still lands, and the known players are untouched.
+        assert len(dataset.records) == 27
+        home_team_gk = dataset.metadata.teams[0].get_player_by_id("133")
+        assert dataset.records[10].players_data[
+            home_team_gk
+        ].coordinates == Point(x=40.46, y=-0.58)
+
+        # The unknown id reaches no player object.
+        for record in dataset.records:
+            for player in record.players_data:
+                assert player.player_id != str(unknown_id)
+
+        # Warned about exactly once, not once per frame.
+        warnings = [
+            r for r in caplog.records if str(unknown_id) in r.getMessage()
+        ]
+        assert len(warnings) == 1

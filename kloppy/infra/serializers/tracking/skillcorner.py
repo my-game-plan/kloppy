@@ -88,6 +88,7 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
         anon_players,
         ball_id,
         referee_dict,
+        unknown_player_ids,
         frame,
     ):
         frame_id = frame["frame"]
@@ -177,6 +178,7 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
         anon_players,
         ball_id,
         referee_dict,
+        unknown_player_ids,
         frame,
     ):
         frame_id = frame["frame"]
@@ -196,7 +198,24 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
 
         raw_players_data = frame["player_data"]
         for raw_player_data in raw_players_data:
-            player = all_players_mapping[str(raw_player_data["player_id"])]
+            raw_player_id = str(raw_player_data["player_id"])
+            player = all_players_mapping.get(raw_player_id)
+            if player is None:
+                # SkillCorner sometimes ship frames for a player id their own
+                # match metadata does not list, so the lineup and the tracking
+                # file disagree. Unlike V2 there is no group_name on a V3
+                # player record, so the id cannot be attributed to a team and
+                # an anonymous player cannot be built for it. Skip the record:
+                # losing one player's coordinates beats raising and losing
+                # every frame of the match.
+                if raw_player_id not in unknown_player_ids:
+                    unknown_player_ids.add(raw_player_id)
+                    logger.warning(
+                        f"Player {raw_player_id} appears in the tracking data "
+                        f"but not in the match metadata; skipping its "
+                        f"coordinates"
+                    )
+                continue
             player_coordinates = cls._raw_coordinates_to_point(raw_player_data)
             if player_coordinates:
                 players_data[player] = PlayerData(
@@ -490,6 +509,9 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
             away_team.players = list(players["AWAY"].values())
 
         anon_players = {"HOME": {}, "AWAY": {}}
+        # Player ids seen in the frames but absent from the metadata, so each
+        # one is only warned about once rather than on every frame it appears in.
+        unknown_player_ids = set()
 
         with performance_logging("Loading data", logger=logger):
 
@@ -533,6 +555,7 @@ class SkillCornerDeserializer(TrackingDataDeserializer[SkillCornerInputs]):
                     anon_players,
                     ball_id,
                     referee_dict,
+                    unknown_player_ids,
                     _frame,
                 )
 
