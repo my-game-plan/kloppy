@@ -74,7 +74,16 @@ class SyntheticBallReceiptGenerator(SyntheticEventGenerator):
 
                     idx_plus += 1
 
-                if result is not None:
+                # A receipt is a location as much as an outcome: it is placed
+                # at the pass's arrival point. A pass the provider shipped
+                # without one (Opta, sporadically: Roda JC - NAC Breda 2639224)
+                # would either crash the flight-time estimate below on
+                # `None.x` or emit a receipt with no coordinates, which the
+                # consumers downstream (zones, SPADL) cannot place. Skip it.
+                if (
+                    result is not None
+                    and event.receiver_coordinates is not None
+                ):
                     if event.receive_timestamp:
                         receive_timestamp = event.receive_timestamp
                     else:
