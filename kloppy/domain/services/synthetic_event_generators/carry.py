@@ -97,6 +97,16 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
 
             new_coord = next_event.coordinates
 
+            # A provider can leave the arrival point off an event - Opta
+            # occasionally ships a completed pass without the end-x/end-y
+            # qualifiers (Roda JC - NAC Breda 2639224, 2026-08-28, one pass at
+            # 0:08). Without a known arrival there is nothing to carry from,
+            # and the origin is the wrong stand-in: it would hand the pass's
+            # own distance to the carry. Skip the carry rather than crash the
+            # whole match on `None.x` in distance_between.
+            if last_coord is None or new_coord is None:
+                continue
+
             distance_meters = pitch.distance_between(
                 new_coord, last_coord, Unit.METERS
             )

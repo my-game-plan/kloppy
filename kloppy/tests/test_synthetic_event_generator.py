@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from kloppy.domain import (
     EventType,
+    PassResult,
     Unit,
 )
 from kloppy.utils import performance_logging
@@ -192,6 +193,88 @@ class TestSyntheticEventGenerator:
                 EventType.BALL_RECEIPT,
             )
         all_receivals = dataset.find_all("ball_receipt")
+
+    def _strip_arrival_from_one_completed_pass(self, dataset, among=None):
+        """Mimic a provider that ships a completed pass without its end point.
+
+        Opta does this sporadically (Roda JC - NAC Breda 2639224, 2026-08-28:
+        one pass at 0:08 with no end-x/end-y qualifiers). Returns the pass.
+        `among` narrows the candidates to a set of event ids.
+        """
+        completed = [
+            event
+            for event in dataset.find_all("pass")
+            if event.result == PassResult.COMPLETE
+            and event.receiver_coordinates is not None
+            and (among is None or event.event_id in among)
+        ]
+        assert completed, "fixture must contain a completed pass"
+        target = completed[len(completed) // 2]
+        target.receiver_coordinates = None
+        return target
+
+    def test_carry_generator_skips_a_pass_without_arrival_point(
+        self, base_dir
+    ):
+        without_carries = [
+            event.value for event in EventType if event.value != "CARRY"
+        ]
+        # Pick a pass that does get a carry on the untouched feed, so the
+        # test exercises the distance check rather than a pass the generator
+        # skips anyway (different team next, set piece, ...).
+        baseline = self._load_dataset_statsbomb(
+            base_dir, event_types=without_carries
+        ).add_synthetic_event(EventType.CARRY)
+        carried = {
+            carry.event_id.removeprefix("carry-")
+            for carry in baseline.find_all("carry")
+        }
+        dataset = self._load_dataset_statsbomb(
+            base_dir, event_types=without_carries
+        )
+        stripped = self._strip_arrival_from_one_completed_pass(
+            dataset, among=carried
+        )
+
+        dataset = dataset.add_synthetic_event(EventType.CARRY)
+
+        carries = dataset.find_all("carry")
+        assert carries, "the rest of the match must still produce carries"
+        assert f"carry-{stripped.event_id}" not in {
+            carry.event_id for carry in carries
+        }
+        assert all(
+            carry.coordinates is not None and carry.end_coordinates is not None
+            for carry in carries
+        )
+
+    def test_ball_receipt_generator_skips_a_pass_without_arrival_point(
+        self, base_dir
+    ):
+        # Pick a pass that does get a receipt on the untouched feed, so the
+        # test exercises the generator rather than a pass it skips anyway.
+        baseline = self._load_dataset_statsbomb(base_dir).add_synthetic_event(
+            EventType.BALL_RECEIPT
+        )
+        receipted = {
+            receipt.event_id.removeprefix("ball_receipt-")
+            for receipt in baseline.find_all("ball_receipt")
+        }
+        dataset = self._load_dataset_statsbomb(base_dir)
+        stripped = self._strip_arrival_from_one_completed_pass(
+            dataset, among=receipted
+        )
+        # Force the flight-time estimate, the branch that reads the arrival.
+        stripped.receive_timestamp = None
+
+        dataset = dataset.add_synthetic_event(EventType.BALL_RECEIPT)
+
+        receipts = dataset.find_all("ball_receipt")
+        assert receipts, "the rest of the match must still produce receipts"
+        assert f"ball_receipt-{stripped.event_id}" not in {
+            receipt.event_id for receipt in receipts
+        }
+        assert all(receipt.coordinates is not None for receipt in receipts)
 
 
 class TestOwnGoalForDomain:
