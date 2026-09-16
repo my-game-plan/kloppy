@@ -27,6 +27,17 @@ from . import specification as SS
 
 logger = logging.getLogger(__name__)
 
+# Rows that record something about the match rather than something that happened
+# with the ball. None of them can mark the moment play (re)started, and all of
+# them are routinely stamped inside the half-time break, so none may set a
+# period's start. The list is deliberately a denylist rather than an allowlist
+# of ball events: a new ball type must keep working untouched, and a new
+# bookkeeping type that slips through is caught loudly by the period-order
+# invariant in `Metadata.__post_init__` rather than silently shifting a boundary.
+NON_PLAY_BASE_TYPES = frozenset(
+    {"PERIOD", "SUBSTITUTE", "POSITION", "FORMATION", "CARD"}
+)
+
 
 class SciSportsInputs(NamedTuple):
     event_data: IO[bytes]
@@ -339,8 +350,16 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
             part_name = event.get("partName")
             start_time_ms = event.get("startTimeMs", 0)
 
-            # Skip period events themselves from start time calculation
-            if event.get("baseTypeName") == "PERIOD":
+            # A period starts when play starts, so only ball events may set it.
+            # SciSports emits no START_PERIOD marker to read it from, and it
+            # stamps the half-time bookkeeping on both sides of the break: the
+            # substitutions carry SECOND_HALF, the second-half starting
+            # positions carry FIRST_HALF, and the subs are stamped fractionally
+            # earlier. Taking the earliest row of any type therefore started the
+            # second half before the first one ended - by 0.09s to 2.06s across
+            # 12 of 13 Belgian elite youth matches, with the real kick-off up to
+            # 5s later still.
+            if event.get("baseTypeName") in NON_PLAY_BASE_TYPES:
                 continue
 
             if part_id:

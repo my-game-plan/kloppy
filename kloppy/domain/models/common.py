@@ -28,6 +28,7 @@ else:
     from typing_extensions import Self
 
 from ...exceptions import (
+    DeserializationError,
     InvalidFilterError,
     KloppyParameterError,
     OrientationError,
@@ -1441,8 +1442,29 @@ class Metadata:
             self.pitch_dimensions = self.coordinate_system.pitch_dimensions
 
         for i, period in enumerate(self.periods):
+            previous = self.periods[i - 1] if i > 0 else None
+            # A period cannot begin before the one before it has ended. Every
+            # deserializer funnels through here, so this is the single place the
+            # invariant holds for every provider and for tracking as well as
+            # event data. It is not a matter of degree, so there is no
+            # tolerance: an overlap means the period boundaries were derived
+            # from something other than play, and every consumer that maps a
+            # timestamp onto footage (clip and XML video time is
+            # `periodOffset + timestamp`) is then resolving against the wrong
+            # half.
+            if (
+                previous is not None
+                and previous.end_timestamp is not None
+                and period.start_timestamp is not None
+                and period.start_timestamp < previous.end_timestamp
+            ):
+                raise DeserializationError(
+                    f"Period {period.id} starts at {period.start_timestamp}, "
+                    f"before period {previous.id} ends at "
+                    f"{previous.end_timestamp}"
+                )
             period.set_refs(
-                prev=self.periods[i - 1] if i > 0 else None,
+                prev=previous,
                 next_=self.periods[i + 1]
                 if i + 1 < len(self.periods)
                 else None,

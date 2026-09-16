@@ -1,8 +1,13 @@
+from datetime import timedelta
 from math import sqrt
 import pytest
 
 from kloppy.domain import (
+    DatasetFlag,
     Dimension,
+    Metadata,
+    Orientation,
+    Period,
     NormalizedPitchDimensions,
     Point,
     Point3D,
@@ -10,6 +15,7 @@ from kloppy.domain import (
     Unit,
     MetricPitchDimensions,
 )
+from kloppy.exceptions import DeserializationError
 from kloppy.domain.services.transformers import DatasetTransformer
 
 
@@ -135,3 +141,124 @@ class TestPitchdimensions:
         )
         assert transformed_point.x == pytest.approx(16.5)
         assert transformed_point.y == pytest.approx(54.16)
+
+
+class TestPeriodOrder:
+    """A period cannot begin before the one before it has ended.
+
+    Asserted in `Metadata.__post_init__` rather than per deserializer, so it
+    holds for every provider and for tracking as well as event data. An overlap
+    means the boundaries were derived from something other than play, and every
+    consumer that maps a timestamp onto footage (clip and XML video time is
+    `periodOffset + timestamp`) then resolves against the wrong half.
+    """
+
+    @staticmethod
+    def _metadata(periods):
+        return Metadata(
+            flags=~(DatasetFlag.BALL_STATE | DatasetFlag.BALL_OWNING_TEAM),
+            pitch_dimensions=NormalizedPitchDimensions(
+                x_dim=Dimension(0, 100),
+                y_dim=Dimension(-50, 50),
+                pitch_length=105,
+                pitch_width=68,
+            ),
+            orientation=Orientation.HOME_AWAY,
+            frame_rate=25,
+            periods=periods,
+            teams=[],
+            score=None,
+            provider=None,
+            coordinate_system=None,
+        )
+
+    def test_consecutive_periods_are_accepted(self):
+        """The ordinary case: the second half starts after the first one ends."""
+        self._metadata(
+            [
+                Period(
+                    id=1,
+                    start_timestamp=timedelta(seconds=0),
+                    end_timestamp=timedelta(seconds=2727.9),
+                ),
+                Period(
+                    id=2,
+                    start_timestamp=timedelta(seconds=2728.0),
+                    end_timestamp=timedelta(seconds=5374.49),
+                ),
+            ]
+        )
+
+    def test_touching_periods_are_accepted(self):
+        """A period may start at the exact instant the previous one ended."""
+        self._metadata(
+            [
+                Period(
+                    id=1,
+                    start_timestamp=timedelta(seconds=0),
+                    end_timestamp=timedelta(seconds=2700),
+                ),
+                Period(
+                    id=2,
+                    start_timestamp=timedelta(seconds=2700),
+                    end_timestamp=timedelta(seconds=5400),
+                ),
+            ]
+        )
+
+    def test_overlapping_periods_are_rejected(self):
+        """KV Mechelen U18 vs KRC Genk U18, before the SciSports fix: the second
+        half started 126ms before the first one ended."""
+        with pytest.raises(DeserializationError) as excinfo:
+            self._metadata(
+                [
+                    Period(
+                        id=1,
+                        start_timestamp=timedelta(seconds=0),
+                        end_timestamp=timedelta(seconds=2727.9),
+                    ),
+                    Period(
+                        id=2,
+                        start_timestamp=timedelta(seconds=2727.774),
+                        end_timestamp=timedelta(seconds=5374.49),
+                    ),
+                ]
+            )
+
+        message = str(excinfo.value)
+        assert "Period 2 starts at" in message
+        assert "before period 1 ends at" in message
+
+    def test_extra_time_is_checked_too(self):
+        """The walk is over every consecutive pair, not just the two halves."""
+        with pytest.raises(DeserializationError):
+            self._metadata(
+                [
+                    Period(
+                        id=1,
+                        start_timestamp=timedelta(seconds=0),
+                        end_timestamp=timedelta(seconds=2700),
+                    ),
+                    Period(
+                        id=2,
+                        start_timestamp=timedelta(seconds=2700),
+                        end_timestamp=timedelta(seconds=5400),
+                    ),
+                    Period(
+                        id=3,
+                        start_timestamp=timedelta(seconds=5399),
+                        end_timestamp=timedelta(seconds=6300),
+                    ),
+                ]
+            )
+
+    def test_a_single_period_has_nothing_to_contradict(self):
+        self._metadata(
+            [
+                Period(
+                    id=1,
+                    start_timestamp=timedelta(seconds=0),
+                    end_timestamp=timedelta(seconds=2700),
+                )
+            ]
+        )
