@@ -142,14 +142,19 @@ class TestSciSportsMetadata:
         first_period = periods[0]
         assert first_period.id == 1
         # duration approx 41.5 minutes (2491 seconds)
-        assert first_period.start_timestamp == timedelta(seconds=0)
+        # A period starts when play starts. The feed's earliest FIRST_HALF rows
+        # are the starting formation and positions at 0ms; the kick-off is at
+        # 70ms and that is the period's start.
+        assert first_period.start_timestamp == timedelta(seconds=0.07)
         assert first_period.end_timestamp == timedelta(seconds=2491)
 
         second_period = periods[1]
         assert second_period.id == 2
         # duration approx 42.4 minutes (2542 seconds)
+        # Likewise the half-time substitutions at 2491.046 sit inside the break;
+        # the second half starts at the restart, 147ms later.
         assert second_period.start_timestamp == timedelta(
-            seconds=2491, microseconds=46000
+            seconds=2491, microseconds=193000
         )
         assert second_period.end_timestamp == timedelta(
             seconds=5033, microseconds=906000
@@ -191,7 +196,7 @@ class TestSciSportsEvent:
         assert event.coordinates == Point(0.0, -0.0)
         assert event.raw_event["eventId"] == 24
         assert event.period.id == 1
-        assert event.timestamp == timedelta(seconds=0.07)
+        assert event.timestamp == timedelta(0)
 
     def test_event_counts(self, dataset):
         """Test that we have the expected number of events"""
@@ -263,7 +268,8 @@ class TestSciSportsPassEvent:
         assert kick_off_pass.player.name == "Player 26"
         assert kick_off_pass.team.name == "Team Alpha"
         assert kick_off_pass.coordinates == Point(0.0, -0.0)
-        assert kick_off_pass.timestamp == timedelta(seconds=0.07)
+        # the kick-off *is* the start of the period
+        assert kick_off_pass.timestamp == timedelta(0)
 
         assert kick_off_pass.receiver_coordinates == Point(x=-13.65, y=0.68)
         assert kick_off_pass.receiver_player.player_id == "Player 15"
@@ -360,7 +366,7 @@ class TestSciSportsShotEvent:
         assert shot_event.team.name == "Team Alpha"
 
         assert shot_event.coordinates == Point(45.15, -5.44)
-        assert shot_event.timestamp == timedelta(seconds=197.6)
+        assert shot_event.timestamp == timedelta(seconds=197.53)
 
         # No z coordinate given
         assert shot_event.result_coordinates == Point(x=52.5, y=-0.27)
@@ -560,7 +566,9 @@ class TestSciSportsSubstitutionEvent:
         assert player_on.player_id == "Player 18"
 
         assert sub_event.time.period.id == 2
-        assert sub_event.time.timestamp == timedelta(0)
+        # Negative on purpose: the substitution was made during half time, so it
+        # precedes the restart that now defines the period's start.
+        assert sub_event.time.timestamp == timedelta(seconds=-0.147)
 
 
 class TestSciSportsCarryEvent:
@@ -798,3 +806,44 @@ class TestSciSportsFormationChangeEvent:
 
         # Position changes with subTypeId 1801 should become FormationChangeEvents
         assert len(formation_change_events) >= 0
+
+
+class TestSciSportsLateHalfTimeBookkeeping:
+    """SciSports stamps the half-time bookkeeping on both sides of the break.
+
+    Real feed, KV Mechelen U18 vs KRC Genk U18 (2026-09-12, dataset
+    6aa344bc0352cf8eb443513a), trimmed to the boundary rows plus a slice of play
+    at each end:
+
+        last  FIRST_HALF  row: 2727.900s  POSITION   PLAYER_STARTING_POSITION
+        first SECOND_HALF row: 2727.774s  SUBSTITUTE SUBBED_OUT / SUBBED_IN
+        first second-half ball event: 2728.000s  PASS / KICK_OFF
+
+    Taking the earliest row of any type as the period start therefore began the
+    second half 126ms before the first one ended. 12 of 13 stored Belgian elite
+    youth matches carried this. No play overlapped in any of them.
+    """
+
+    @pytest.fixture(scope="class")
+    def dataset(self, base_dir) -> EventDataset:
+        return scisports.load_event(
+            event_data=base_dir
+            / "files"
+            / "scisports_late_half_time_6aa344bc.json",
+            coordinates="opta",
+        )
+
+    def test_the_halves_do_not_overlap(self, dataset):
+        first, second = dataset.metadata.periods[:2]
+        assert second.start_timestamp >= first.end_timestamp
+
+    def test_the_second_half_starts_at_the_restart(self, dataset):
+        """Not at the half-time substitutions 226ms earlier."""
+        second = dataset.metadata.periods[1]
+        assert second.start_timestamp == timedelta(seconds=2728.0)
+
+    def test_the_first_half_starts_at_play(self, dataset):
+        """Not at the starting-position dump that shares the match's zero."""
+        first = dataset.metadata.periods[0]
+        assert first.start_timestamp > timedelta(seconds=0)
+        assert first.end_timestamp == timedelta(seconds=2727.9)
