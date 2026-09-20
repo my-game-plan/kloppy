@@ -256,6 +256,28 @@ OPEN_PLAY_ACTION_IDS = frozenset(
     }
 )
 
+# Of those, the ones that record what happened to possession rather than a
+# player touching the ball. A substitution drags a LOST_BALL/RECOVERED_BALL
+# pair along with it, stamped a second after the period marker, and the same
+# pair turns up on its own at a restart, so a half that has not kicked off yet
+# still looks like it opened with play. Counting them made
+# _advance_starts_to_kickoff refuse the kickoff it was built to find.
+DERIVED_POSSESSION_ACTION_IDS = frozenset(
+    {
+        LOST_BALL,
+        RECOVERED_BALL,
+        BALL_OUT_OF_THE_FIELD,
+        OFFSIDE,
+        CREATED_OFFSIDE_TRAP,
+    }
+)
+
+# A kickoff is a touch, so the dead zone before one is measured against the
+# actions that need a player on the ball. Narrower than OPEN_PLAY_ACTION_IDS,
+# which answers the different question of whether football was played at all
+# and keeps every marker above.
+ON_BALL_ACTION_IDS = OPEN_PLAY_ACTION_IDS - DERIVED_POSSESSION_ACTION_IDS
+
 ACTION_IDS_TO_IGNORE = (
     [
         FIRST_HALF,
@@ -677,7 +699,7 @@ def _parse_pass(raw_event: Dict, action_id: int, team: Team) -> Dict:
 def _advance_starts_to_kickoff(
     bounds: List[Tuple[int, float, float]],
     raw_events: Dict,
-    open_play_seconds: List[float],
+    on_ball_seconds: List[float],
 ) -> List[Tuple[int, float, float]]:
     """Move a period start that was stamped before the ball was kicked.
 
@@ -712,7 +734,23 @@ def _advance_starts_to_kickoff(
 
     That test is what makes this safe to apply to every SmrtStats feed:
     it fails closed, and a period whose evidence does not line up is left
-    exactly as the markers describe it.
+    exactly as the markers describe it. It also carries the whole weight,
+    because the block is not consistent: over 3023 periods its start sits
+    0-60 s after a marker whose first touch is already at 0.00 s in 35 % of
+    them, and more than 60 s out in another 2 %. In 664697 it claims 114 s
+    for a first half whose burned-in stadium clock reads 01:50 at video
+    second 114, because the tagger paused for 94 s and the block reports
+    where they resumed. None of that reaches a period start: the evidence
+    does the deciding, and MAX_KICKOFF_ADVANCE is the second line.
+
+    What counts as evidence is a *touch*. Reading the dead zone against
+    every open-play marker let a substitution decide it: SmrtStats stamp
+    LOST_BALL and RECOVERED_BALL alongside the SUBSTITUTION a second after
+    the period marker, and the same pair appears alone at a restart, so the
+    half looked like it had already begun and the claim was refused. In
+    765352 (OH Leuven U23 - Zelzate) that held the second half 23.47 s
+    before its kickoff, with nothing between the marker at 2826.83 and the
+    first pass at 2850.30 but a substitution and the lineup dump.
 
     The tolerance scales with the gap so the test keeps its power at small
     ones - a flat window would swallow every 1-2 s claim, since a first
@@ -735,14 +773,14 @@ def _advance_starts_to_kickoff(
             if offset_key
             else None
         )
-        # Ball circulation only. Every other marker list opens with the
-        # lineup: formations and one position marker per player, all
-        # stamped at the period's first second. Measuring the dead zone
-        # against those makes the period look like it opened instantly and
-        # the test refuses every time, which is exactly the bug this
-        # replaced - the rule was inert on real feeds.
+        # Touches only. The other marker lists open with the lineup dump
+        # (formations and one position marker per player, all stamped at the
+        # period's first second), and the open-play set adds possession
+        # bookkeeping a substitution drags along. Either makes the period
+        # look like it opened instantly and the test refuses every time,
+        # which is how this rule was inert on real feeds once already.
         own_play = [
-            second for second in open_play_seconds if start <= second < end
+            second for second in on_ball_seconds if start <= second < end
         ]
         if (
             kickoff is None
@@ -1184,6 +1222,12 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
             if e.get("action_id") in OPEN_PLAY_ACTION_IDS
             and e.get("second") is not None
         )
+        on_ball_seconds = sorted(
+            e["second"]
+            for e in all_markers
+            if e.get("action_id") in ON_BALL_ACTION_IDS
+            and e.get("second") is not None
+        )
 
         def _open_play_after(second: float) -> bool:
             return any(s > second for s in open_play_seconds)
@@ -1307,7 +1351,7 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
         # settled: a start still liable to be relocated or dropped would be
         # the wrong thing to measure a kickoff against.
         checked = _advance_starts_to_kickoff(
-            checked, raw_events, open_play_seconds
+            checked, raw_events, on_ball_seconds
         )
 
         return [
