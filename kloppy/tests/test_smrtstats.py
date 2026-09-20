@@ -12,8 +12,11 @@ from kloppy.infra.serializers.event.smrtstats.deserializer import (
     BALL_RECEIVING,
     FIRST_HALF,
     HALF_TIME,
+    LOST_BALL,
     MATCH_END,
+    RECOVERED_BALL,
     SECOND_HALF,
+    SUBSTITUTION,
     SmrtStatsDeserializer,
     _advance_starts_to_kickoff,
 )
@@ -2171,3 +2174,93 @@ class TestKickoffAdvanceOnARealMarkerLayout:
         p1 = SmrtStatsDeserializer.create_periods(feed)[0]
 
         assert p1.start_timestamp == timedelta(seconds=1.0)
+
+
+class TestKickoffAdvanceAcrossASubstitutionAtTheRestart:
+    """End to end through create_periods, with a substitution on the marker.
+
+    Modelled on 765352 (OH Leuven U23 - Zelzate, 2026-09-13): HALF_TIME at
+    2825.27, SECOND_HALF at 2826.83, a SUBSTITUTION at 2827.09 carrying a
+    LOST_BALL and a RECOVERED_BALL stamped in the same second, the lineup
+    dump a second later, and the first pass of the half at 2850.30 against
+    a claimed kickoff of 2850.
+
+    Counting that pair as play put the period's first "action" 0.26 s after
+    the marker, so the claim missed by 22.91 s and was refused, and every
+    second-half timestamp came out 23.47 s too large. The pair also turns
+    up without a substitution (673442), so the fix is to ask for a touch
+    rather than to special-case the substitution.
+    """
+
+    def _feed(self):
+        def marker(id_, action_id, second):
+            return {"id": id_, "action_id": action_id, "second": second}
+
+        first_half = [
+            marker(1, FIRST_HALF, 5.0),
+            marker(2, ACCURATE_PASS, 5.2),
+            marker(3, ACCURATE_PASS, 1400.0),
+            marker(4, HALF_TIME, 2825.27),
+        ]
+        second_half = [
+            marker(5, SECOND_HALF, 2826.83),
+            # The substitution and the possession bookkeeping it drags with
+            # it, all in the same second, before anyone has touched the ball.
+            marker(6, SUBSTITUTION, 2827.09),
+            marker(7, LOST_BALL, 2827.09),
+            marker(8, RECOVERED_BALL, 2827.09),
+            # The lineup dump for the restart.
+            marker(9, 96, 2828.16),
+            marker(10, 4, 2828.16),
+            marker(11, 5, 2829.09),
+            # The kickoff.
+            marker(12, ACCURATE_PASS, 2850.30),
+            marker(13, BALL_RECEIVING, 2851.9),
+            marker(14, ACCURATE_PASS, 5700.0),
+            marker(15, MATCH_END, 5755.88),
+        ]
+        return {
+            "first_half_markers": first_half,
+            "second_half_markers": second_half,
+            "offsets": {
+                "1st half": {"start": 5, "end": 2825},
+                "2nd half": {"start": 2850, "end": 5755},
+                "1st half of additional time": None,
+                "2nd half of additional time": None,
+                "Penalty shootout": None,
+            },
+        }
+
+    def test_the_second_half_starts_on_the_kickoff(self):
+        p2 = SmrtStatsDeserializer.create_periods(self._feed())[1]
+
+        assert p2.start_timestamp == timedelta(seconds=2850)
+
+    def test_the_period_end_is_untouched(self):
+        p2 = SmrtStatsDeserializer.create_periods(self._feed())[1]
+
+        assert p2.end_timestamp == timedelta(seconds=5755.88)
+
+    def test_bookkeeping_without_a_substitution_is_ignored_too(self):
+        # 673442: the same LOST_BALL/RECOVERED_BALL pair one second after the
+        # marker, with no substitution to explain it.
+        feed = self._feed()
+        feed["second_half_markers"] = [
+            m
+            for m in feed["second_half_markers"]
+            if m["action_id"] != SUBSTITUTION
+        ]
+        p2 = SmrtStatsDeserializer.create_periods(feed)[1]
+
+        assert p2.start_timestamp == timedelta(seconds=2850)
+
+    def test_a_touch_before_the_claim_still_refuses_it(self):
+        # The half really is under way: one pass 3 s after the marker, and the
+        # claim must be left alone however long the quiet stretch after it.
+        feed = self._feed()
+        feed["second_half_markers"].append(
+            {"id": 16, "action_id": ACCURATE_PASS, "second": 2829.9}
+        )
+        p2 = SmrtStatsDeserializer.create_periods(feed)[1]
+
+        assert p2.start_timestamp == timedelta(seconds=2826.83)
