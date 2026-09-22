@@ -690,6 +690,101 @@ class TestOptaAbandonment:
 
         assert goal.timestamp == kickoff + timedelta(minutes=27, seconds=41)
 
+    def test_interleaved_sittings_shift_once(self):
+        """Two sittings listed interleaved must still cost exactly one shift.
+
+        Opta does not list a resumed match in wall-clock order: an event from
+        before the suspension can follow one from after it. Measuring gaps in
+        feed order then finds the same suspension twice and subtracts it twice,
+        which drove FC Utrecht - Go Ahead Eagles (2638921, suspended at 64:11 on
+        2026-09-05, resumed on 2026-09-08) to a period ending three days before
+        it started.
+        """
+        kickoff = datetime(2026, 9, 5, 17, 45, 11)
+        gap = timedelta(days=2, hours=17, minutes=30)
+
+        def raw_event(event_id, minute, second, timestamp):
+            return OptaEvent(
+                id=event_id,
+                event_id=int(event_id),
+                type_id=1,
+                period_id=2,
+                time_min=minute,
+                time_sec=second,
+                x=50.0,
+                y=50.0,
+                timestamp=timestamp,
+                last_modified=timestamp,
+            )
+
+        # Feed order: before, after, before, after. The two "before" events are
+        # what resets the baseline and buys a second shift.
+        before_1 = raw_event(
+            "1", 64, 11, kickoff + timedelta(minutes=64, seconds=11)
+        )
+        after_1 = raw_event(
+            "2", 64, 11, kickoff + timedelta(minutes=64, seconds=11) + gap
+        )
+        before_2 = raw_event(
+            "3", 64, 15, kickoff + timedelta(minutes=64, seconds=15)
+        )
+        after_2 = raw_event(
+            "4", 64, 33, kickoff + timedelta(minutes=64, seconds=33) + gap
+        )
+
+        _normalize_suspension_gaps([before_1, after_1, before_2, after_2])
+
+        # Each event lands on its game clock, the suspension removed once.
+        assert before_1.timestamp == kickoff + timedelta(
+            minutes=64, seconds=11
+        )
+        assert after_1.timestamp == kickoff + timedelta(minutes=64, seconds=11)
+        assert before_2.timestamp == kickoff + timedelta(
+            minutes=64, seconds=15
+        )
+        assert after_2.timestamp == kickoff + timedelta(minutes=64, seconds=33)
+
+    def test_backwards_game_clock_alone_is_not_a_suspension(self):
+        """A game clock that jumps back without wall-clock time passing.
+
+        Opta ships duplicate END_PERIOD markers carrying the wrong game clock:
+        NYCFC - NY Red Bulls (2610096) ends the second half twice at the same
+        wall clock, once at 94:18 and once at 45:00. The excess between them is
+        49 minutes over an 8-second gap, which must not read as a suspension -
+        it collapsed the half to a millisecond.
+        """
+        kickoff = datetime(2026, 9, 19, 1, 45, 31)
+
+        def raw_event(event_id, minute, second, timestamp, type_id=1):
+            return OptaEvent(
+                id=event_id,
+                event_id=int(event_id),
+                type_id=type_id,
+                period_id=2,
+                time_min=minute,
+                time_sec=second,
+                x=50.0,
+                y=50.0,
+                timestamp=timestamp,
+                last_modified=timestamp,
+            )
+
+        last_pass = raw_event(
+            "1", 94, 10, kickoff + timedelta(minutes=49, seconds=10)
+        )
+        end_marker = raw_event(
+            "2", 45, 0, kickoff + timedelta(minutes=49, seconds=18), type_id=30
+        )
+
+        _normalize_suspension_gaps([last_pass, end_marker])
+
+        assert last_pass.timestamp == kickoff + timedelta(
+            minutes=49, seconds=10
+        )
+        assert end_marker.timestamp == kickoff + timedelta(
+            minutes=49, seconds=18
+        )
+
     def test_corrupt_goal_shot_timestamp_is_ignored(self):
         """A qualifier far from the event timestamp must not be adopted.
 
