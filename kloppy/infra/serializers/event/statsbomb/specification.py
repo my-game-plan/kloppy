@@ -1088,7 +1088,16 @@ class GOALKEEPER(EVENT):
             GOALKEEPER.TYPE.SHOT_SAVED_OFF_TARGET,
             GOALKEEPER.TYPE.SHOT_SAVED_TO_POST,
         ]
-        type_id = GOALKEEPER.TYPE(goalkeeper_dict.get("type", {}).get("id"))
+        # StatsBomb sometimes serves a goalkeeper event with no "type" at all
+        # (an end_location and an outcome, nothing naming the action). Passing
+        # that None into the enum raises and takes the whole match down over a
+        # single event, so treat it as an unnamed action: no qualifier matches
+        # and the generic-event fall-through at the end of this method carries
+        # it, exactly as it does for a type we deliberately do not map.
+        raw_type_id = (goalkeeper_dict.get("type") or {}).get("id")
+        type_id = (
+            GOALKEEPER.TYPE(raw_type_id) if raw_type_id is not None else None
+        )
         outcome_id = goalkeeper_dict.get("outcome", {}).get("id")
         qualifiers = []
         if type_id in save_event_types:
