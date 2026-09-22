@@ -840,11 +840,12 @@ def _apply_goal_shot_timestamps(raw_events: List[OptaEvent]) -> None:
             )
             continue
         shot_timestamp = (
-            pytz.timezone("Europe/London")
-            .localize(naive)
-            .astimezone(pytz.utc)
+            pytz.timezone("Europe/London").localize(naive).astimezone(pytz.utc)
         )
-        if abs(shot_timestamp - raw_event.timestamp) > MAX_GOAL_SHOT_CORRECTION:
+        if (
+            abs(shot_timestamp - raw_event.timestamp)
+            > MAX_GOAL_SHOT_CORRECTION
+        ):
             logger.warning(
                 "Qualifier %s on event %s is %s away from the event timestamp; "
                 "ignoring it and leaving the goal on the event timestamp.",
@@ -867,18 +868,25 @@ def _normalize_suspension_gaps(raw_events: List[OptaEvent]) -> None:
     which breaks consumers that assume game-clock semantics (notably the
     minutes-played aggregator with `breakdown_key="possession_state"`).
 
-    For each period, walk events in order and apply a cumulative shift to each
-    event's wall-clock timestamp whenever the wall-clock delta between two
-    consecutive events exceeds the game-clock delta by more than
+    For each period, walk events in wall-clock order and apply a cumulative
+    shift to each event's wall-clock timestamp whenever the wall-clock delta
+    between two consecutive events exceeds the game-clock delta by more than
     `SUSPENSION_GAP_THRESHOLD`. The END_PERIOD event is included in the walk,
     so `period.end_timestamp` (set later from that event) is also corrected.
+
+    Wall-clock order, not feed order: Opta lists a resumed match's two sittings
+    interleaved, so a pre-suspension event can follow a post-suspension one in
+    the feed. Walking that order measures the same gap once per interleaving,
+    subtracts it every time, and drives the period's end before its start.
+    Ordering by timestamp puts the whole first sitting ahead of the whole
+    second, so one suspension is one shift however the feed lists it.
 
     Goals have already been moved onto their shot timestamp by
     `_apply_goal_shot_timestamps`, so they are shifted here like any other event.
     """
     shift_per_period: Dict[int, timedelta] = {}
     prev_per_period: Dict[int, OptaEvent] = {}
-    for raw_event in raw_events:
+    for raw_event in sorted(raw_events, key=lambda event: event.timestamp):
         period_id = raw_event.period_id
         shift = shift_per_period.get(period_id, timedelta(0))
         if shift:
@@ -891,7 +899,17 @@ def _normalize_suspension_gaps(raw_events: List[OptaEvent]) -> None:
                 seconds=raw_event.time_sec - prev.time_sec,
             )
             excess = wall_delta - game_delta
-            if excess > SUSPENSION_GAP_THRESHOLD:
+            # Both halves of the test matter. `excess` alone is satisfied by a
+            # game clock that jumps backwards, and Opta ships those: NYCFC - NY
+            # Red Bulls (2610096) carries a second END_PERIOD marker stamped at
+            # the right wall clock but at 45:00 instead of 94:18, which reads as
+            # a 49-minute "suspension" across an 8-second gap and collapses the
+            # half to nothing. A suspension is wall-clock time actually passing,
+            # so require that too.
+            if (
+                excess > SUSPENSION_GAP_THRESHOLD
+                and wall_delta > SUSPENSION_GAP_THRESHOLD
+            ):
                 logger.warning(
                     "Detected suspension gap of %s in period %s between "
                     "events %s (game %d:%02d) and %s (game %d:%02d); "
