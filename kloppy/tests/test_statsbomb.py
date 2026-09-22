@@ -1,3 +1,4 @@
+import json
 import os
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -1121,6 +1122,33 @@ class TestStatsBombGoalkeeperEvent:
         assert collected.get_qualifier_value(GoalkeeperQualifier) == (
             GoalkeeperActionType.CLAIM
         )
+
+    def test_missing_type(self, base_dir, tmp_path):
+        """It should not fail on a goalkeeper event that carries no type"""
+        # StatsBomb serves these: an end_location and an outcome, nothing
+        # naming the action (seen on match 4094085, 81:16). One such event
+        # used to raise and cost the whole match.
+        events = json.loads(
+            (base_dir / "files/statsbomb_event.json").read_text()
+        )
+        typeless = next(
+            event
+            for event in events
+            if event["type"]["id"] == 23 and "type" in event["goalkeeper"]
+        )
+        del typeless["goalkeeper"]["type"]
+        event_data = tmp_path / "statsbomb_event_typeless_goalkeeper.json"
+        event_data.write_text(json.dumps(events))
+
+        dataset = statsbomb.load(
+            event_data=event_data,
+            lineup_data=base_dir / "files/statsbomb_lineup.json",
+        )
+
+        # The action is unnamed, so it lands as a generic event like any
+        # goalkeeper type we do not map, and the rest of the match survives.
+        event = dataset.get_event_by_id(typeless["id"])
+        assert event.event_type == EventType.GENERIC
 
     def test_keeper_sweeper(self, dataset: EventDataset):
         """It should deserialize keeper sweeper actions"""
