@@ -29,6 +29,7 @@ from kloppy.exceptions import DeserializationError
 from kloppy.infra.serializers.event.impect.helpers import (
     get_period_by_id,
     get_team_by_id,
+    mirror_coordinates,
     parse_coordinates,
     parse_shot_end_coordinates,
     parse_timestamp,
@@ -406,6 +407,9 @@ class LOOSE_BALL_REGAIN(EVENT):
                     "team": opponent_team,
                     "player": opponent_player,
                     "event_id": f"{opponent_player.player_id}-aerial-duel-{generic_event_kwargs['event_id']}",
+                    "coordinates": mirror_coordinates(
+                        generic_event_kwargs["coordinates"]
+                    ),
                 }
             )
             opponent_aerial_duel_event = event_factory.build_duel(
@@ -504,6 +508,9 @@ class GROUND_DUEL(EVENT):
                 "team": opponent_team,
                 "player": opponent_player,
                 "event_id": f"{opponent_player.player_id}-ground-duel-{generic_event_kwargs['event_id']}",
+                "coordinates": mirror_coordinates(
+                    generic_event_kwargs["coordinates"]
+                ),
             }
         )
         opponent_duel_event = event_factory.build_duel(

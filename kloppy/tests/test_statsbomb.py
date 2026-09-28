@@ -873,7 +873,14 @@ class TestStatsBombOwnGoalEvent:
         assert isinstance(synthetic, OwnGoalForEvent)
         assert synthetic.team != source_shot.team  # beneficiary
         assert synthetic.player is None
-        assert synthetic.coordinates == source_shot.coordinates
+        # Mirrored into the beneficiary's attacking frame.
+        pitch = dataset.metadata.pitch_dimensions
+        assert synthetic.coordinates.x == pytest.approx(
+            pitch.x_dim.min + pitch.x_dim.max - source_shot.coordinates.x
+        )
+        assert synthetic.coordinates.y == pytest.approx(
+            pitch.y_dim.min + pitch.y_dim.max - source_shot.coordinates.y
+        )
         assert any(
             isinstance(q, GoalQualifier) for q in (synthetic.qualifiers or [])
         )

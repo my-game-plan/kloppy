@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+import pytest
+
 from kloppy.domain import (
     EventType,
     PassResult,
@@ -464,8 +466,14 @@ class TestSyntheticOwnGoalForGenerator:
         # Player is None.
         assert synthetic.player is None
 
-        # Coordinates copied from source.
-        assert synthetic.coordinates == source.coordinates
+        # Coordinates mirrored into the beneficiary's attacking frame.
+        pitch = dataset.metadata.pitch_dimensions
+        assert synthetic.coordinates.x == pytest.approx(
+            pitch.x_dim.min + pitch.x_dim.max - source.coordinates.x
+        )
+        assert synthetic.coordinates.y == pytest.approx(
+            pitch.y_dim.min + pitch.y_dim.max - source.coordinates.y
+        )
 
         # GoalQualifier is present.
         assert synthetic.qualifiers is not None

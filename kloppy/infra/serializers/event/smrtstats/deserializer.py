@@ -607,6 +607,19 @@ def _update_recipient_event_kwargs(
         logger.warning(f"Unexpected recipient id: {raw_event['recipient_id']}")
         # raise DeserializationError(f"Unexpected recipient id: {raw_event['recipient_id']}")
 
+    # Coordinates are in the creator's attacking frame. The recipient plays
+    # the other way, so its copy of the duel is mirrored around the pitch
+    # centre to land in its own frame.
+    coordinates = generic_event_kwargs["coordinates"]
+    if (
+        recipient_event_kwargs["team"] is not generic_event_kwargs["team"]
+        and coordinates is not None
+    ):
+        recipient_event_kwargs["coordinates"] = Point(
+            x=SMRTSTATS_PITCH_LENGTH - coordinates.x,
+            y=SMRTSTATS_PITCH_WIDTH - coordinates.y,
+        )
+
     return recipient_event_kwargs
 
 

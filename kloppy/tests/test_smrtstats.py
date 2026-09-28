@@ -401,6 +401,33 @@ class TestSmrtStatsDuelEvent:
             DuelType.TACKLE,
         ]
 
+    def test_opponent_duel_in_recipient_frame(self, dataset: EventDataset):
+        """The losing side of a two-player duel must carry coordinates in
+        its own attacking frame, i.e. the creator's mirrored around the
+        pitch centre, not a verbatim copy of the creator's."""
+        pairs = [
+            (dataset.get_event_by_id(e.event_id.split("-", 1)[1]), e)
+            for e in dataset.events
+            if e.event_id.startswith("opponent_duel-")
+        ]
+        assert len(pairs) == 62
+        for primary, recipient in pairs:
+            assert recipient.team is not primary.team
+            assert recipient.coordinates.x == pytest.approx(
+                105 - primary.coordinates.x
+            )
+            assert recipient.coordinates.y == pytest.approx(
+                68 - primary.coordinates.y
+            )
+
+        # Anchor: New Mexico United plays in the direct frame (relative ==
+        # absolute), so its recipient copy of 239947312 lands on the raw
+        # absolute coord_x/coord_y (62.16, 11.9).
+        recipient = dataset.get_event_by_id("opponent_duel-239947312")
+        assert recipient.team.name == "New Mexico United"
+        assert recipient.coordinates.x == pytest.approx(62.16)
+        assert recipient.coordinates.y == pytest.approx(11.9)
+
     def test_aerial_duel_qualifiers(self, dataset: EventDataset):
         """It should add aerial duel + loose ball qualifiers"""
         duel = dataset.get_event_by_id("239947312")

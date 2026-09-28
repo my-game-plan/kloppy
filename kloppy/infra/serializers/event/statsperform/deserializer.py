@@ -455,7 +455,9 @@ def _parse_shot(raw_event: OptaEvent) -> Dict:
     coordinates = Point(x=raw_event.x, y=raw_event.y)
     if raw_event.type_id == EVENT_TYPE_SHOT_GOAL:
         if 28 in raw_event.qualifiers:
-            coordinates = Point(x=100 - raw_event.x, y=100 - raw_event.y)
+            # The start location is already in the own-goal scorer's team's
+            # frame (near their own goal, e.g. x=5.4), like every other
+            # event; only the goal-mouth end location below is mirrored.
             result = ShotResult.OWN_GOAL
             # ball_owning_team =
             # timestamp =

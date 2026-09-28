@@ -191,6 +191,18 @@ def parse_coordinates(raw_coordinates: Dict[str, float]) -> Point:
     )
 
 
+def mirror_coordinates(coordinates: Optional[Point]) -> Optional[Point]:
+    """Mirror a point around the centre spot.
+
+    ``adjCoordinates`` are in the action-executing team's attacking frame.
+    The opponent in a duel attacks the other way, so its copy of the
+    duel's coordinates must be mirrored to land in its own frame.
+    """
+    if coordinates is None:
+        return None
+    return Point(x=-coordinates.x, y=-coordinates.y)
+
+
 def parse_shot_end_coordinates(
     shot_info: Dict,
     shot_result,
