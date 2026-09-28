@@ -25,6 +25,9 @@ from kloppy.domain import (
     build_coordinate_system,
     PassQualifier,
     CardType,
+    DuelQualifier,
+    DuelResult,
+    DuelType,
 )
 from kloppy.domain.models.event import (
     PassEvent,
@@ -645,6 +648,38 @@ class TestSciSportsTakeOnEvent:
         # Both successful and unsuccessful take-ons should exist
         assert len(complete_taketons) == 22
         assert len(incomplete_taketons) == 7
+
+
+class TestSciSportsDuelEvent:
+    """Tests related to deserializing Duel events (from DEFENSIVE_DUEL)"""
+
+    def test_deserialize_all(self, dataset: EventDataset):
+        """It should deserialize all defensive duels"""
+        events = dataset.find_all("duel")
+        assert len(events) == 62
+
+    def test_duel_result_checks(self, dataset: EventDataset):
+        """The result follows resultId: a lost challenge is not a won duel"""
+        duel_events = dataset.find_all("duel")
+        won = [e for e in duel_events if e.result == DuelResult.WON]
+        lost = [e for e in duel_events if e.result == DuelResult.LOST]
+        assert len(won) == 38
+        assert len(lost) == 24
+
+        assert dataset.get_event_by_id("66").result == DuelResult.LOST
+
+    def test_duel_type(self, dataset: EventDataset):
+        """An AIR_CHALLENGE is an aerial duel, the rest ground duels"""
+        tackle = dataset.get_event_by_id("28")
+        assert tackle.get_qualifier_values(DuelQualifier) == [DuelType.GROUND]
+
+        aerial_won = dataset.get_event_by_id("396")
+        aerial_lost = dataset.get_event_by_id("397")
+        assert aerial_won.get_qualifier_values(DuelQualifier) == [
+            DuelType.AERIAL
+        ]
+        assert aerial_won.result == DuelResult.WON
+        assert aerial_lost.result == DuelResult.LOST
 
 
 class TestSciSportsClearanceEvent:
