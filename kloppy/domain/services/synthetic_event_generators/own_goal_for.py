@@ -3,6 +3,8 @@ from typing import Optional
 from kloppy.domain import (
     EventDataset,
     EventFactory,
+    Orientation,
+    Point,
     ShotEvent,
     ShotResult,
 )
@@ -33,9 +35,24 @@ class SyntheticOwnGoalForGenerator(SyntheticEventGenerator):
                 t for t in dataset.metadata.teams if t != event.team
             )
 
+            # The shot is in the own-goal scorer's team's attacking frame.
+            # With a per-team orientation the beneficiary attacks the other
+            # way, so its event is mirrored around the centre spot.
+            coordinates = event.coordinates
+            if (
+                coordinates is not None
+                and dataset.metadata.orientation
+                == Orientation.ACTION_EXECUTING_TEAM
+            ):
+                pitch = dataset.metadata.pitch_dimensions
+                coordinates = Point(
+                    x=pitch.x_dim.min + pitch.x_dim.max - coordinates.x,
+                    y=pitch.y_dim.min + pitch.y_dim.max - coordinates.y,
+                )
+
             new_own_goal_for = self.event_factory.build_own_goal_for(
                 event_id=new_event_id,
-                coordinates=event.coordinates,
+                coordinates=coordinates,
                 team=opponent_team,
                 player=None,
                 ball_owning_team=event.ball_owning_team,
@@ -47,9 +64,7 @@ class SyntheticOwnGoalForGenerator(SyntheticEventGenerator):
                 related_event_ids=[event.event_id],
                 result=None,
             )
-            dataset.insert(
-                new_own_goal_for, after_event_id=event.event_id
-            )
+            dataset.insert(new_own_goal_for, after_event_id=event.event_id)
             existing_ids.add(new_event_id)
 
         return dataset

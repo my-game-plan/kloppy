@@ -453,6 +453,9 @@ class TestOptaShotEvent:
         """Test if own goals are correctly deserialized"""
         own_goal = dataset.get_event_by_id("2318697001")
         assert own_goal.result == ShotResult.OWN_GOAL
+        # The start location is already in the scorer's team's frame, near
+        # their own goal (raw x=17.9, y=48.0)
+        assert own_goal.coordinates == Point(17.9, 48.0)
         # Use the inverse coordinates of the goal location
         assert own_goal.result_coordinates == Point3D(0.0, 100 - 45.6, 1.9)
         assert own_goal.ball_state == BallState.DEAD
