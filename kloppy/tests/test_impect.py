@@ -567,6 +567,18 @@ class TestImpectDuelEvent:
                 -primary.coordinates.y
             )
 
+        # Anchor to the raw feed: in period 1 team 1's adjCoordinates are its
+        # absolute coordinates flipped, team 2's equal them. So team 2's copy
+        # of team 1's duel 45 must land on the raw absolute start location.
+        raw_start = dataset.get_event_by_id("45").raw_event["start"]
+        opponent = dataset.get_event_by_id("37-ground-duel-45")
+        assert opponent.coordinates.x == pytest.approx(
+            raw_start["coordinates"]["x"]
+        )
+        assert opponent.coordinates.y == pytest.approx(
+            raw_start["coordinates"]["y"]
+        )
+
 
 class TestImpectGoalkeeperEvent:
     """Tests related to deserializing 30/Goalkeeper events"""
