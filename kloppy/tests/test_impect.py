@@ -546,6 +546,27 @@ class TestImpectDuelEvent:
             DuelType.AERIAL,
         ]
 
+    def test_opponent_duel_in_opponent_frame(self, dataset: EventDataset):
+        """Coordinates are in the action-executing team's frame, so the
+        opponent's artificial copy of a duel must be mirrored around the
+        centre spot rather than copied."""
+        pairs = [
+            (dataset.get_event_by_id("45"), "37-ground-duel-45"),
+            (
+                dataset.get_event_by_id("15-aerial-duel-135"),
+                "33-aerial-duel-135",
+            ),
+        ]
+        for primary, opponent_id in pairs:
+            opponent = dataset.get_event_by_id(opponent_id)
+            assert opponent.team is not primary.team
+            assert opponent.coordinates.x == pytest.approx(
+                -primary.coordinates.x
+            )
+            assert opponent.coordinates.y == pytest.approx(
+                -primary.coordinates.y
+            )
+
 
 class TestImpectGoalkeeperEvent:
     """Tests related to deserializing 30/Goalkeeper events"""
