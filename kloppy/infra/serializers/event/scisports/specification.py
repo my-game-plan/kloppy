@@ -700,14 +700,29 @@ class INTERCEPTION(EVENT):
 class DEFENSIVE_DUEL(EVENT):
     """SciSports 4/Defensive Duel event."""
 
+    class SUB_TYPE(Enum, metaclass=TypesEnumMeta):
+        TACKLE = 400
+        CHALLENGE = 401
+        AIR_CHALLENGE = 402
+
     def _create_events(
         self, event_factory: EventFactory, **generic_event_kwargs
     ) -> List[Event]:
-        # Determine if duel was won or lost
-        result = DuelResult.WON  # Default assumption for defensive actions
+        result_enum = RESULT(self.raw_event["resultId"])
+        if result_enum == RESULT.SUCCESSFUL:
+            result = DuelResult.WON
+        elif result_enum == RESULT.UNSUCCESSFUL:
+            result = DuelResult.LOST
+        else:
+            result = None
 
-        # Add ground duel qualifier
-        qualifiers = [DuelQualifier(value=DuelType.GROUND)]
+        duel_type = (
+            DuelType.AERIAL
+            if self.raw_event.get("subTypeId")
+            == DEFENSIVE_DUEL.SUB_TYPE.AIR_CHALLENGE.value
+            else DuelType.GROUND
+        )
+        qualifiers = [DuelQualifier(value=duel_type)]
 
         duel_event = event_factory.build_duel(
             result=result,
