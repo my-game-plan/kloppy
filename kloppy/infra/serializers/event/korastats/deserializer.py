@@ -161,7 +161,14 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
             event_data = json.load(inputs.event_data)
 
         raw_events = event_data["events"]
-        self.pair_substitutions(raw_events)
+        self.pair_substitutions(
+            raw_events,
+            {
+                player["id"]: player["position"]["name"]
+                for side in ("home", "away")
+                for player in metadata[side]["squad"]
+            },
+        )
 
         with performance_logging("parse data", logger=logger):
             starting_formations = parse_starting_formations(
@@ -261,7 +268,9 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
         return [home_team, away_team]
 
     @staticmethod
-    def pair_substitutions(raw_events: List[Dict]) -> None:
+    def pair_substitutions(
+        raw_events: List[Dict], squad_positions: Dict[int, str]
+    ) -> None:
         """Annotate each SubstituteOut with its replacement player id.
 
         KoraStats emits a separate SubstituteOut and SubstituteIn event per
@@ -271,25 +280,59 @@ class KoraStatsDeserializer(EventDataDeserializer[KoraStatsInputs]):
         Pair each out with the nearest unconsumed in of the same team in the
         same half and store the replacement on the out event, so the
         deserializer never has to rely on adjacency.
+
+        A team making several changes at once (a half-time batch, or NCAA
+        rolling substitutions) gets its outs and ins within the same second
+        with nothing linking them, so file order pairs them arbitrarily. Since
+        the replacement inherits the outgoing player's position, that put an
+        outfield player in goal and the incoming keeper on the wing
+        (129616). So a keeper going off is paired first, with a keeper coming
+        on in the same batch when there is one (squad feed position). Every
+        other out keeps plain proximity: the squad feed only has a player's
+        primary position, and a keeper listed as coming on for an outfield
+        player is left where KoraStats put it (77054).
         """
+
+        def is_goalkeeper(player_id) -> bool:
+            return squad_positions.get(player_id) == "GK"
+
         sub_ins_by_team = collections.defaultdict(list)
+        sub_outs = []
         for ix, event in enumerate(raw_events):
             if event.get("extra") == "SubstituteIn":
                 sub_ins_by_team[event.get("team_id")].append(ix)
+            elif event.get("extra") == "SubstituteOut":
+                sub_outs.append(ix)
+        sub_outs.sort(
+            key=lambda ix: not is_goalkeeper(raw_events[ix].get("player_id"))
+        )
 
         consumed = set()
-        for ix, event in enumerate(raw_events):
-            if event.get("extra") != "SubstituteOut":
-                continue
-            best = None
-            for j in sub_ins_by_team.get(event.get("team_id"), []):
-                if j in consumed or raw_events[j].get("half") != event.get(
-                    "half"
-                ):
-                    continue
-                if best is None or abs(j - ix) < abs(best - ix):
-                    best = j
-            if best is not None:
+        for ix in sub_outs:
+            event = raw_events[ix]
+
+            def preference(j: int):
+                # A batch is logged within the same second, not at exactly the
+                # same timestamp (129616: 1.562s and 1.612s).
+                keeper_in_batch = (
+                    is_goalkeeper(event.get("player_id"))
+                    and is_goalkeeper(raw_events[j].get("player_id"))
+                    and abs(
+                        (raw_events[j].get("timeInSec") or 0)
+                        - (event.get("timeInSec") or 0)
+                    )
+                    <= 1
+                )
+                return (not keeper_in_batch, abs(j - ix))
+
+            candidates = [
+                j
+                for j in sub_ins_by_team.get(event.get("team_id"), [])
+                if j not in consumed
+                and raw_events[j].get("half") == event.get("half")
+            ]
+            if candidates:
+                best = min(candidates, key=preference)
                 consumed.add(best)
                 event["_replacement_player_id"] = raw_events[best]["player_id"]
 

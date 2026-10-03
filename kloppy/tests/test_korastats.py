@@ -577,10 +577,102 @@ class TestKoraStatsSubstitutionEvent:
                 "player_id": 11,
             },
         ]
-        KoraStatsDeserializer.pair_substitutions(raw_events)
+        KoraStatsDeserializer.pair_substitutions(raw_events, {})
 
         assert raw_events[0]["_replacement_player_id"] == 11
         assert raw_events[1]["_replacement_player_id"] == 21
+
+    def test_pair_batched_substitutions_by_position(self):
+        """It should keep the keeper in goal in a batch of simultaneous subs.
+
+        Miami Hurricanes - Duke Blue Devils (KoraStats 129616): five half-time
+        changes at the same second, in this file order. Pairing by proximity
+        alone sent the incoming keeper (673250) on for a midfielder and an
+        outfield player (673248) on for the keeper.
+        """
+        from kloppy.infra.serializers.event.korastats.deserializer import (
+            KoraStatsDeserializer,
+        )
+
+        batch = [
+            (673251, 673238),  # LB out, LB in
+            (673249, 673237),  # LB out, LW in
+            (673239, 673248),  # GK out, CM in
+            (673255, 673250),  # CM out, GK in
+            (673254, 673236),  # CF out, DM in
+        ]
+        raw_events = []
+        for out_id, in_id in batch:
+            for extra, player_id in (
+                ("SubstituteOut", out_id),
+                ("SubstituteIn", in_id),
+            ):
+                raw_events.append(
+                    {
+                        "extra": extra,
+                        "team_id": 37101,
+                        "half": 2,
+                        "timeInSec": 2701.14,
+                        "player_id": player_id,
+                    }
+                )
+        # The batch shares a second, not a timestamp.
+        raw_events[0]["timeInSec"] = 2701.09
+        squad_positions = {
+            673251: "LB",
+            673238: "LB",
+            673249: "LB",
+            673237: "LW",
+            673239: "GK",
+            673248: "CM",
+            673255: "CM",
+            673250: "GK",
+            673254: "CF",
+            673236: "DM",
+        }
+        KoraStatsDeserializer.pair_substitutions(raw_events, squad_positions)
+
+        pairs = {
+            event["player_id"]: event["_replacement_player_id"]
+            for event in raw_events
+            if event["extra"] == "SubstituteOut"
+        }
+        assert pairs[673239] == 673250  # keeper for keeper
+        assert pairs[673255] == 673248  # not the keeper
+        assert pairs[673251] == 673238  # untouched: nearest in file order
+        assert set(pairs.values()) == {in_id for _, in_id in batch}
+
+    def test_pair_keeper_in_for_outfield_out_by_proximity(self):
+        """It should leave a batch without an outgoing keeper as listed.
+
+        IK Brage - IK Oddevold (KoraStats 77054) lists a keeper coming on for
+        a midfielder at half-time while the starting keeper plays on.
+        """
+        from kloppy.infra.serializers.event.korastats.deserializer import (
+            KoraStatsDeserializer,
+        )
+
+        raw_events = [
+            {
+                "extra": extra,
+                "team_id": 1,
+                "half": 2,
+                "timeInSec": t,
+                "player_id": p,
+            }
+            for extra, t, p in [
+                ("SubstituteOut", 0.029, 10),
+                ("SubstituteIn", 0.029, 11),
+                ("SubstituteOut", 0.04, 20),
+                ("SubstituteIn", 0.04, 21),
+            ]
+        ]
+        KoraStatsDeserializer.pair_substitutions(
+            raw_events, {10: "CM", 11: "GK", 20: "LW", 21: "LW"}
+        )
+
+        assert raw_events[0]["_replacement_player_id"] == 11
+        assert raw_events[2]["_replacement_player_id"] == 21
 
 
 class TestKoraStatsFoulCommittedEvent:
