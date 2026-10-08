@@ -311,8 +311,9 @@ class TestStatsPerformEvent:
         offside_passes = [p for p in passes if p.result == PassResult.OFFSIDE]
 
         assert len(out_passes) == 21
-        assert len(incomplete_passes) == 188
-        assert len(complete_passes) == 711
+        # 2 deflections out for a corner are no longer complete (TAS-4194)
+        assert len(incomplete_passes) == 190
+        assert len(complete_passes) == 709
         assert len(offside_passes) == 2
 
 

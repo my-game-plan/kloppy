@@ -97,6 +97,7 @@ EVENT_TYPE_CORNER_AWARDED = 6
 EVENT_TYPE_FOUL_COMMITTED = 4
 EVENT_TYPE_CARD = 17
 EVENT_TYPE_RECOVERY = 49
+EVENT_TYPE_DISPOSSESSED = 50
 EVENT_TYPE_TEAM_SET_UP = 34
 EVENT_TYPE_FORMATION_CHANGE = 40
 EVENT_TYPE_BALL_TOUCH = 61
@@ -334,13 +335,20 @@ def _parse_pass(
 
     # Set the end location of a deflected pass to the start location
     # of the next action and the outcome to "success" if the deflected
-    # pass reached a teammate
+    # pass reached a teammate. The teammate's action must be one where he
+    # touched the ball: administrative events (start/end delay, deleted
+    # event, ...) carry the passing team's id but sit at x=0, y=0.
     if (
         next_event is not None
         and next_next_event is not None
         and next_event.type_id == EVENT_TYPE_BALL_TOUCH
         and next_event.outcome == 1
         and next_next_event.contestant_id == raw_event.contestant_id
+        and (
+            next_next_event.type_id in BALL_OWNING_EVENTS
+            or next_next_event.type_id
+            in (EVENT_TYPE_AERIAL, EVENT_TYPE_DISPOSSESSED)
+        )
     ):
         result = PassResult.COMPLETE
         receiver_coordinates = Point(

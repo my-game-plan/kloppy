@@ -94,7 +94,8 @@ class TestStateBuilder:
 
         assert events_per_sequence[1] == 5
         assert events_per_sequence[89] == 12
-        assert len(poss_switch[PossessionSwitchType.GAIN]) == 143
+        # 2 deflections out for a corner are no longer complete (TAS-4194)
+        assert len(poss_switch[PossessionSwitchType.GAIN]) == 141
         assert len(poss_switch[PossessionSwitchType.LOSE]) == 174
 
     def test_lineup_state_builder(self, base_dir):
