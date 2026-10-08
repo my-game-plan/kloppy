@@ -38,6 +38,7 @@ from kloppy import opta
 from kloppy.infra.serializers.event.statsperform.deserializer import (
     _apply_goal_shot_timestamps,
     _get_end_coordinates,
+    _parse_pass,
     _normalize_suspension_gaps,
 )
 from kloppy.infra.serializers.event.statsperform.parsers.base import OptaEvent
@@ -294,6 +295,42 @@ class TestOptaPassEvent:
         assert deflected_pass.result == PassResult.COMPLETE
         assert deflected_pass.receiver_coordinates.x == 3.3
         assert deflected_pass.receiver_coordinates.y == 81.1
+
+    def test_deflected_pass_followed_by_delay_keeps_own_end(self):
+        """A deflection followed by an administrative event (here a start
+        delay for an injury, which Opta places at x=0, y=0) must not move
+        the pass end to (0, 0) or mark it complete. NEC - Telstar, 8 Aug 2026,
+        F24 event 357."""
+        ts = datetime(2026, 8, 8, 15, 3, 17, tzinfo=timezone.utc)
+
+        def raw_event(event_id, type_id, team, outcome, x, y, qualifiers=None):
+            return OptaEvent(
+                id=event_id,
+                event_id=int(event_id),
+                type_id=type_id,
+                period_id=1,
+                time_min=32,
+                time_sec=41,
+                x=x,
+                y=y,
+                timestamp=ts,
+                last_modified=ts,
+                contestant_id=team,
+                outcome=outcome,
+                qualifiers=qualifiers or {},
+            )
+
+        cross = raw_event(
+            "357", 1, "320", 0, 96.9, 72.6, {2: None, 140: "96.4", 141: "67.8"}
+        )
+        touch = raw_event("223", 61, "905", 1, 5.7, 26.7)
+        delay = raw_event("358", 27, "320", 1, 0.0, 0.0)
+
+        parsed = _parse_pass(cross, touch, delay, team=None, period=None)
+
+        assert parsed["result"] == PassResult.INCOMPLETE
+        assert parsed["receiver_coordinates"].x == 96.4
+        assert parsed["receiver_coordinates"].y == 67.8
 
     def test_ball_state(self, dataset: EventDataset):
         """Test if the ball state is correctly set"""
