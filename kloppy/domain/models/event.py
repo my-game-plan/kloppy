@@ -1230,14 +1230,31 @@ class EventDataset(Dataset[Event]):
                 event.qualifiers.append(GoalQualifier(value=True))
 
     def _update_formations_and_positions(self):
-        """Update team formations and player positions based on Substitution and TacticalShift events."""
+        """Update team formations and player positions based on Substitution,
+        TacticalShift and sending-off (red or second yellow card) events.
+
+        A sending-off ends the player's position the way a substitution does
+        (`None`), so he stops counting as on the pitch and his minutes stop at
+        the card. A card to a player who is not on the pitch (on the bench, or
+        already substituted off) changes nothing."""
         max_leeway = timedelta(seconds=60)
+        sent_off = set()
 
         for team in self.metadata.teams:
             team.formations.reset()
 
         for event in self.events:
-            if isinstance(event, SubstitutionEvent):
+            if (
+                isinstance(event, CardEvent)
+                and event.card_type in (CardType.RED, CardType.SECOND_YELLOW)
+                and event.player is not None
+                and event.player not in sent_off
+            ):
+                if event.player.positions.last(default=None) is not None:
+                    event.player.set_position(event.time, None)
+                    sent_off.add(event.player)
+
+            elif isinstance(event, SubstitutionEvent):
                 if event.replacement_player:
                     # Prefer explicit position on the substitution event when available.
                     if event.position is not None:
@@ -1261,6 +1278,10 @@ class EventDataset(Dataset[Event]):
             elif isinstance(event, FormationChangeEvent):
                 if event.player_positions:
                     for player, position in event.player_positions.items():
+                        # Providers keep listing a sent-off player in later
+                        # formations; that must not put him back on the pitch.
+                        if player in sent_off:
+                            continue
                         if len(player.positions.items):
                             last_time, last_position = player.positions.last(
                                 include_time=True
