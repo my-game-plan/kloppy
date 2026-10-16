@@ -889,3 +889,8 @@ class TestOptaCardEvent:
         assert all(
             event.ball_state == BallState.DEAD for event in events
         ), "Not all card ball states are ALIVE"
+
+    def test_card_type(self, dataset: EventDataset):
+        """It should read the card type from the card qualifiers"""
+        red_card = dataset.get_event_by_id("2318454729")
+        assert red_card.card_type == CardType.RED

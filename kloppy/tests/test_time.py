@@ -224,6 +224,34 @@ class TestAbsTime:
                 0.001,
             )
 
+    def test_statsbomb_sending_off_ends_position(self, base_dir):
+        # 15986: Lenglet (6826) is sent off at P1 32:36.585 and Barcelona's
+        # tactical shift at P2 02:11 still lists him.
+        dataset = statsbomb.load(
+            lineup_data=base_dir / "files/statsbomb_15986_lineup.json",
+            event_data=base_dir / "files/statsbomb_15986_event.json",
+        )
+        card_time = Time(
+            period=dataset.metadata.periods[0],
+            timestamp=timedelta(seconds=1956.585),
+        )
+        players = {
+            player.player_id: player
+            for team in dataset.metadata.teams
+            for player in team.players
+        }
+        lenglet = players["6826"]
+        assert lenglet.positions.last(include_time=True) == (card_time, None)
+
+        minutes_played = {
+            item.key.player.player_id: item.duration
+            for item in dataset.aggregate("minutes_played")
+            if item.key.player
+        }
+        assert minutes_played["6826"] == timedelta(seconds=1956.585)
+        # A first yellow changes nothing.
+        assert players["6374"].positions.last() is not None
+
     def test_statsbomb_minutes_played_per_possession_state(self, base_dir):
         dataset = statsbomb.load(
             # 3788741
