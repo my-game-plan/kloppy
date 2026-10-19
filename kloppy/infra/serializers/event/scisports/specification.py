@@ -752,9 +752,29 @@ class CLEARANCE(EVENT):
 class BAD_TOUCH(EVENT):
     """SciSports 11/Bad Touch event."""
 
+    class SUB_TYPE(Enum, metaclass=TypesEnumMeta):
+        BAD_TOUCH = 1100
+        OWN_GOAL = 1101
+
     def _create_events(
         self, event_factory: EventFactory, **generic_event_kwargs
     ) -> List[Event]:
+        # SciSports has no shot for an own goal: it is a bad touch by the
+        # player who put the ball in his own net, on his own team. That is
+        # exactly what ShotResult.OWN_GOAL means, and the score state credits
+        # it to the other team.
+        if (
+            self.raw_event.get("subTypeId")
+            == BAD_TOUCH.SUB_TYPE.OWN_GOAL.value
+        ):
+            shot_event = event_factory.build_shot(
+                result=ShotResult.OWN_GOAL,
+                qualifiers=_get_body_part_qualifiers(self.raw_event),
+                result_coordinates=None,
+                **generic_event_kwargs,
+            )
+            return [shot_event]
+
         miscontrol_event = event_factory.build_miscontrol(
             result=None,
             qualifiers=None,

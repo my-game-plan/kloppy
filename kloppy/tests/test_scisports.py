@@ -882,3 +882,43 @@ class TestSciSportsLateHalfTimeBookkeeping:
         first = dataset.metadata.periods[0]
         assert first.start_timestamp > timedelta(seconds=0)
         assert first.end_timestamp == timedelta(seconds=2727.9)
+
+
+class TestSciSportsOwnGoal:
+    """SciSports has no shot for an own goal: it tags a BAD_TOUCH with subtype
+    OWN_GOAL (1101) on the player who put the ball in his own net.
+
+    Real feed, RSC Anderlecht U16 vs Standard Liège U16 (2026-10-17, dataset
+    6ad16922264d1b832df77fa0), trimmed to the first-half rows around the
+    3' own goal by the Standard keeper (eventId 63) and Anderlecht's 34' goal
+    (eventId 455), with player names replaced. Read as a miscontrol, the own
+    goal dropped out of the score: the feed's own metaData said 3-3, we stored
+    2-3.
+    """
+
+    @pytest.fixture(scope="class")
+    def dataset(self, base_dir) -> EventDataset:
+        return scisports.load_event(
+            event_data=base_dir / "files" / "scisports_own_goal_6ad16922.json",
+            coordinates="opta",
+        )
+
+    def test_the_own_goal_is_a_shot_on_the_conceding_team(self, dataset):
+        own_goal = dataset.get_event_by_id("63")
+        assert isinstance(own_goal, ShotEvent)
+        assert own_goal.result == ShotResult.OWN_GOAL
+        assert own_goal.team.name == "Standard Liège U16"
+
+    def test_the_own_goal_counts_for_the_other_team(self, dataset):
+        dataset = dataset.add_state(["score"])
+        final_score = dataset.records[-1].state["score"]
+        assert (final_score.home, final_score.away) == (2, 0)
+
+    def test_a_plain_bad_touch_is_still_a_miscontrol(self, dataset):
+        bad_touches = [
+            event
+            for event in dataset.events
+            if event.raw_event.get("subTypeName") == "BAD_TOUCH"
+        ]
+        assert bad_touches
+        assert all(isinstance(e, MiscontrolEvent) for e in bad_touches)
