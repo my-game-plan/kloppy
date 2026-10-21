@@ -922,3 +922,13 @@ class TestSciSportsOwnGoal:
         ]
         assert bad_touches
         assert all(isinstance(e, MiscontrolEvent) for e in bad_touches)
+
+
+def test_center_backs_keep_their_side():
+    """A back three's left and right centre-backs must not collapse onto CB."""
+    from kloppy.domain import PositionType
+    from kloppy.infra.serializers.event.scisports import specification as SS
+
+    assert SS.get_position_type(3) == PositionType.LeftCenterBack
+    assert SS.get_position_type(4) == PositionType.CenterBack
+    assert SS.get_position_type(5) == PositionType.RightCenterBack
