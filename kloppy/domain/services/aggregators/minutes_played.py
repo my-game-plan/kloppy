@@ -97,6 +97,22 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
         self.breakdown_key = breakdown_key
 
     @staticmethod
+    def _on_pitch_spells(player: Player) -> List[Tuple[Time, Time]]:
+        """The (start, end) of every range the player holds a position in.
+
+        A `None` position means off the pitch: substituted off, sent off, or
+        off for a while under rolling substitutions (youth football), where a
+        player can come back on later. Those ranges are not played time, so a
+        player who goes on, off and on again counts both spells and not the
+        gap between them.
+        """
+        return [
+            (start, end)
+            for start, end, position in player.positions.ranges()
+            if position is not None
+        ]
+
+    @staticmethod
     def get_possession_state(
         ball_state: BallState, ball_owning_team: Team, team: Team
     ):
@@ -123,7 +139,7 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
     def _handle_possession_state_end(
         time_per_possession_state: Dict[PossessionState, timedelta],
         time_per_player: Dict[Player, Dict[PossessionState, timedelta]],
-        players_start_end_times: Dict[Player, Tuple[Time, Time, bool]],
+        players_on_pitch: Dict[Player, List[Tuple[Time, Time]]],
         start_time: Time,
         end_time: Time,
         ball_state: BallState,
@@ -136,7 +152,7 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
         time_per_possession_state[possession_state] += end_time - start_time
         MinutesPlayedAggregator._accumulate_player_time(
             time_per_player,
-            players_start_end_times,
+            players_on_pitch,
             start_time,
             end_time,
             possession_state,
@@ -145,21 +161,21 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
     @staticmethod
     def _accumulate_player_time(
         time_per_player: Dict[Player, Dict[PossessionState, timedelta]],
-        players_start_end_times: Dict[Player, Tuple[Time, Time, bool]],
+        players_on_pitch: Dict[Player, List[Tuple[Time, Time]]],
         start_time: Time,
         end_time: Time,
         possession_state: PossessionState,
     ):
-        for player, (
-            start_player_time,
-            end_player_time,
-            _,
-        ) in players_start_end_times.items():
-            if start_player_time <= end_time and end_player_time >= start_time:
-                duration = min(end_time, end_player_time) - max(
-                    start_time, start_player_time
-                )
-                time_per_player[player][possession_state] += duration
+        for player, spells in players_on_pitch.items():
+            for start_player_time, end_player_time in spells:
+                if (
+                    start_player_time <= end_time
+                    and end_player_time >= start_time
+                ):
+                    duration = min(end_time, end_player_time) - max(
+                        start_time, start_player_time
+                    )
+                    time_per_player[player][possession_state] += duration
 
     def aggregate(self, dataset: EventDataset) -> List[MinutesPlayed]:
 
@@ -186,32 +202,18 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
         elif self.breakdown_key == BreakdownKey.POSSESSION_STATE:
             first_team = dataset.metadata.teams[0]
 
-            players_start_end_times = {}
+            players_on_pitch = {}
             for team in dataset.metadata.teams:
                 for player in team.players:
-                    _start_time = None
-                    end_time = None
-                    for (
-                        start_timestamp,
-                        end_time,
-                        position,
-                    ) in player.positions.ranges():
-                        if not _start_time:
-                            _start_time = start_timestamp
-
-                    if _start_time:
-                        flip_possession_state = team != first_team
-                        players_start_end_times[player] = (
-                            _start_time,
-                            end_time,
-                            flip_possession_state,
-                        )
+                    spells = self._on_pitch_spells(player)
+                    if spells:
+                        players_on_pitch[player] = spells
             time_per_possession_state = {
                 state: timedelta(0) for state in PossessionState
             }
             time_per_player = {
                 player: {state: timedelta(0) for state in PossessionState}
-                for player in players_start_end_times.keys()
+                for player in players_on_pitch.keys()
             }
             start_time: Optional[Time] = dataset.metadata.periods[0].start_time
             ball_owning_team: Optional[Team] = None
@@ -239,7 +241,7 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                         self._handle_possession_state_end(
                             time_per_possession_state,
                             time_per_player,
-                            players_start_end_times,
+                            players_on_pitch,
                             start_time,
                             previous_event.time,
                             ball_state,
@@ -289,7 +291,7 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                     self._handle_possession_state_end(
                         time_per_possession_state,
                         time_per_player,
-                        players_start_end_times,
+                        players_on_pitch,
                         start_time,
                         end_time,
                         ball_state,
@@ -310,7 +312,7 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                     self._handle_possession_state_end(
                         time_per_possession_state,
                         time_per_player,
-                        players_start_end_times,
+                        players_on_pitch,
                         start_time,
                         actual_event_time,
                         ball_state,
@@ -330,7 +332,7 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
             self._handle_possession_state_end(
                 time_per_possession_state,
                 time_per_player,
-                players_start_end_times,
+                players_on_pitch,
                 start_time,
                 end_time,
                 ball_state,
@@ -389,23 +391,17 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                     )
                 )
                 for player in team.players:
-                    _start_time = None
-                    end_time = None
-                    for (
-                        start_timestamp,
-                        end_time,
-                        position,
-                    ) in player.positions.ranges():
-                        if not _start_time:
-                            _start_time = start_timestamp
-
-                    if _start_time:
+                    spells = self._on_pitch_spells(player)
+                    if spells:
                         items.append(
                             MinutesPlayed(
                                 key=MinutesPlayedKey(player=player),
-                                start_time=_start_time,
-                                end_time=end_time,
-                                duration=end_time - _start_time,
+                                start_time=spells[0][0],
+                                end_time=spells[-1][1],
+                                duration=sum(
+                                    (end - start for start, end in spells),
+                                    timedelta(0),
+                                ),
                             )
                         )
 

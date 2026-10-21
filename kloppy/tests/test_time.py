@@ -252,6 +252,44 @@ class TestAbsTime:
         # A first yellow changes nothing.
         assert players["6374"].positions.last() is not None
 
+    def test_rolling_substitution_excludes_time_off_the_pitch(self, base_dir):
+        # Youth football: a player can come off and go back on. Ramos (5211)
+        # plays the whole match; give him a spell on the bench from P1 1000s
+        # to P2 500s. Only the time he holds a position counts, in both the
+        # plain and the possession-state breakdown.
+        dataset = statsbomb.load(
+            lineup_data=base_dir / "files/statsbomb_lineup.json",
+            event_data=base_dir / "files/statsbomb_event.json",
+        )
+        period1, period2 = dataset.metadata.periods[:2]
+        ramos = dataset.metadata.teams[0].get_player_by_id(5211)
+        position = ramos.positions.at_start()
+        off = Time(period=period1, timestamp=timedelta(seconds=1000))
+        back_on = Time(period=period2, timestamp=timedelta(seconds=500))
+        ramos.positions.set(off, None)
+        ramos.positions.set(back_on, position)
+
+        expected = timedelta(seconds=1000) + (
+            period2.duration - timedelta(seconds=500)
+        )
+
+        minutes_played = {
+            item.key.player: item.duration
+            for item in dataset.aggregate("minutes_played")
+            if item.key.player
+        }
+        assert minutes_played[ramos] == expected
+
+        per_possession_state = [
+            item.duration
+            for item in dataset.aggregate(
+                "minutes_played", breakdown_key=BreakdownKey.POSSESSION_STATE
+            )
+            if item.key.player == ramos
+        ]
+        assert len(per_possession_state) == len(PossessionState)
+        assert sum(per_possession_state, timedelta(0)) == expected
+
     def test_statsbomb_minutes_played_per_possession_state(self, base_dir):
         dataset = statsbomb.load(
             # 3788741
