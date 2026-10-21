@@ -17,7 +17,12 @@ from kloppy.domain import (
     GoalkeeperEvent,
     GenericEvent,
 )
-from kloppy.domain.models.event import PassResult, PressureEvent, SetPieceQualifier
+from kloppy.domain.models.event import (
+    DuelResult,
+    PassResult,
+    PressureEvent,
+    SetPieceQualifier,
+)
 from kloppy.domain.services.synthetic_event_generators.synthetic_event_generator import (
     PASS_VELOCITY_ESTIMATE_MS,
     SyntheticEventGenerator,
@@ -79,8 +84,24 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
                 if isinstance(next_event, (GenericEvent, PressureEvent)):
                     idx_plus += 1
                     continue
-                else:
-                    break
+                # The defender a take-on beats is logged as a lost duel just
+                # before that take-on (Opta's challenge, Wyscout's and
+                # KoraStats' defending duel). He never had the ball, so the
+                # dribbler's carry runs on into his take-on.
+                if (
+                    isinstance(next_event, DuelEvent)
+                    and next_event.result == DuelResult.LOST
+                    and next_event.team.team_id != event.team.team_id
+                    and idx + idx_plus + 1 < len(dataset.events)
+                    and isinstance(
+                        dataset.events[idx + idx_plus + 1], TakeOnEvent
+                    )
+                    and dataset.events[idx + idx_plus + 1].team.team_id
+                    == event.team.team_id
+                ):
+                    idx_plus += 1
+                    continue
+                break
 
             if not isinstance(next_event, VALID_EVENT):
                 continue

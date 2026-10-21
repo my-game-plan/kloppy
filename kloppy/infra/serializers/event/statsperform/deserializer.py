@@ -86,6 +86,7 @@ EVENT_TYPE_TAKE_ON = 3
 EVENT_TYPE_TACKLE = 7
 EVENT_TYPE_AERIAL = 44
 EVENT_TYPE_50_50 = 67
+EVENT_TYPE_CHALLENGE = 45
 EVENT_TYPE_INTERCEPTION = 8
 EVENT_TYPE_CLEARANCE = 12
 EVENT_TYPE_SHOT_MISS = 13
@@ -117,10 +118,15 @@ KEEPER_EVENTS = [
 ]
 
 BALL_OUT_EVENTS = [EVENT_TYPE_BALL_OUT, EVENT_TYPE_CORNER_AWARDED]
+# A challenge is the defender beaten by a take-on: a lost ground duel. The
+# fouled player (foul with outcome 1) is the winner of a ground duel and is
+# routed to _parse_duel separately, since the foul's outcome-0 side stays a
+# foul committed. Both count as ground duels in Opta's own duel definition.
 DUEL_EVENTS = [
     EVENT_TYPE_TACKLE,
     EVENT_TYPE_AERIAL,
     EVENT_TYPE_50_50,
+    EVENT_TYPE_CHALLENGE,
 ]
 
 BALL_OWNING_EVENTS = (
@@ -187,8 +193,6 @@ EVENT_QUALIFIER_FORMATION_PLAYER_POSITIONS = 131
 
 EVENT_QUALIFIER_XG = 321
 EVENT_QUALIFIER_POST_SHOT_XG = 322
-
-EVENT_TYPE_CHALLENGE = 45
 
 event_type_names = {
     1: "pass",
@@ -537,7 +541,11 @@ def _parse_goalkeeper_events(raw_event: OptaEvent) -> Dict:
 
 def _parse_duel(raw_event: OptaEvent) -> Dict:
     qualifiers = _get_event_qualifiers(raw_event.qualifiers)
-    if raw_event.type_id == EVENT_TYPE_TACKLE:
+    if raw_event.type_id in (
+        EVENT_TYPE_TACKLE,
+        EVENT_TYPE_CHALLENGE,
+        EVENT_TYPE_FOUL_COMMITTED,
+    ):
         qualifiers.extend([DuelQualifier(value=DuelType.GROUND)])
     elif raw_event.type_id == EVENT_TYPE_AERIAL:
         qualifiers.extend(
@@ -1129,7 +1137,10 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                             **clearance_event_kwargs,
                             **generic_event_kwargs,
                         )
-                    elif raw_event.type_id in DUEL_EVENTS:
+                    elif raw_event.type_id in DUEL_EVENTS or (
+                        raw_event.type_id == EVENT_TYPE_FOUL_COMMITTED
+                        and raw_event.outcome == 1
+                    ):
                         duel_event_kwargs = _parse_duel(raw_event)
                         event = self.event_factory.build_duel(
                             **duel_event_kwargs,
