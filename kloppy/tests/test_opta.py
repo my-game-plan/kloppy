@@ -13,6 +13,7 @@ from kloppy.domain import (
     DatasetFlag,
     DatasetType,
     DuelQualifier,
+    DuelResult,
     DuelType,
     EventDataset,
     EventType,
@@ -549,6 +550,46 @@ class TestOptaDuelEvent:
         assert DuelType.GROUND in ground_duel.get_qualifier_values(
             DuelQualifier
         )
+
+    def test_challenge_and_foul_won_are_ground_duels(self, base_dir, tmp_path):
+        """Opta counts the beaten defender (challenge, type 45) as a lost
+        ground duel and the fouled player (foul, outcome 1) as a won one.
+        Both used to be dropped: Heymans had 1 ground duel against Kortrijk
+        (game 2644657) where Opta and Sofascore count 8. The foul's
+        outcome-0 side stays a foul committed."""
+        events = (
+            '<Event id="900000000" event_id="11" type_id="3" period_id="1" min="0" sec="21" player_id="430368" team_id="2592" outcome="1" x="60.0" y="50.0" timestamp="2018-09-23T15:02:35.175" last_modified="2018-09-23T15:02:37" version="1537711356793" />\n'
+            '    <Event id="900000001" event_id="900" type_id="45" period_id="1" min="0" sec="21" player_id="84359" team_id="569" outcome="0" x="40.0" y="50.0" timestamp="2018-09-23T15:02:35.180" last_modified="2018-09-23T15:02:37" version="1537711356793" />\n'
+            '    <Event id="900000002" event_id="10" type_id="4" period_id="1" min="0" sec="21" player_id="430368" team_id="2592" outcome="1" x="45.0" y="50.0" timestamp="2018-09-23T15:02:35.190" last_modified="2018-09-23T15:02:37" version="1537711356793" />\n'
+            '    <Event id="900000003" event_id="901" type_id="4" period_id="1" min="0" sec="21" player_id="84359" team_id="569" outcome="0" x="55.0" y="50.0" timestamp="2018-09-23T15:02:35.200" last_modified="2018-09-23T15:02:37" version="1537711356793" />\n'
+            '    <Event id="1821879260" '
+        )
+        f24 = (base_dir / "files" / "opta_f24.xml").read_text()
+        f24_path = tmp_path / "f24.xml"
+        f24_path.write_text(f24.replace('<Event id="1821879260" ', events, 1))
+        dataset = opta.load(
+            f7_data=base_dir / "files" / "opta_f7.xml",
+            f24_data=f24_path,
+            coordinates="opta",
+        )
+
+        challenge = dataset.get_event_by_id("900000001")
+        assert challenge.event_type == EventType.DUEL
+        assert challenge.result == DuelResult.LOST
+        assert challenge.get_qualifier_values(DuelQualifier) == [
+            DuelType.GROUND
+        ]
+        # Logged after the take-on that beat it, ordered before it
+        assert challenge.next_record.event_id == "900000000"
+
+        fouled = dataset.get_event_by_id("900000002")
+        assert fouled.event_type == EventType.DUEL
+        assert fouled.result == DuelResult.WON
+        assert fouled.get_qualifier_values(DuelQualifier) == [DuelType.GROUND]
+
+        foul = dataset.get_event_by_id("900000003")
+        assert foul.event_type == EventType.FOUL_COMMITTED
+        assert len(dataset.find_all("duel")) == 5
 
 
 class TestOptaGoalkeeperEvent:
