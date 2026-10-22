@@ -84,20 +84,23 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
                 if isinstance(next_event, (GenericEvent, PressureEvent)):
                     idx_plus += 1
                     continue
-                # The defender a take-on beats is logged as a lost duel just
-                # before that take-on (Opta's challenge, Wyscout's and
-                # KoraStats' defending duel). He never had the ball, so the
-                # dribbler's carry runs on into his take-on.
+                # The defender a take-on beats is logged as a lost duel at the
+                # moment of that take-on, just before it (Opta's challenge,
+                # Wyscout's and KoraStats' defending duel). He never had the
+                # ball, so the dribbler's carry runs on into his take-on.
+                take_on = (
+                    dataset.events[idx + idx_plus + 1]
+                    if idx + idx_plus + 1 < len(dataset.events)
+                    else None
+                )
                 if (
                     isinstance(next_event, DuelEvent)
                     and next_event.result == DuelResult.LOST
                     and next_event.team.team_id != event.team.team_id
-                    and idx + idx_plus + 1 < len(dataset.events)
-                    and isinstance(
-                        dataset.events[idx + idx_plus + 1], TakeOnEvent
-                    )
-                    and dataset.events[idx + idx_plus + 1].team.team_id
-                    == event.team.team_id
+                    and isinstance(take_on, TakeOnEvent)
+                    and take_on.team.team_id == event.team.team_id
+                    and abs(take_on.timestamp - next_event.timestamp)
+                    <= timedelta(seconds=1)
                 ):
                     idx_plus += 1
                     continue
@@ -106,6 +109,20 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
             if not isinstance(next_event, VALID_EVENT):
                 continue
             if not event.team.team_id == next_event.team.team_id:
+                continue
+            # The same pattern from the defender's side: he has no ball to
+            # carry into the duel he loses to the take-on that follows it.
+            after_next = (
+                dataset.events[idx + idx_plus + 1]
+                if idx + idx_plus + 1 < len(dataset.events)
+                else None
+            )
+            if (
+                isinstance(next_event, DuelEvent)
+                and next_event.result == DuelResult.LOST
+                and isinstance(after_next, TakeOnEvent)
+                and after_next.team.team_id != next_event.team.team_id
+            ):
                 continue
             if next_event.get_qualifier_value(SetPieceQualifier) is not None:
                 continue

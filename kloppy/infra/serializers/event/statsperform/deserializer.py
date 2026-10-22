@@ -13,9 +13,11 @@ from kloppy.domain import (
     CardType,
     CounterAttackQualifier,
     DatasetFlag,
+    DuelEvent,
     DuelQualifier,
     DuelResult,
     DuelType,
+    Event,
     EventDataset,
     ExpectedGoals,
     GoalkeeperActionType,
@@ -38,6 +40,7 @@ from kloppy.domain import (
     SetPieceQualifier,
     SetPieceType,
     ShotResult,
+    TakeOnEvent,
     TakeOnResult,
     Team,
     TechniqueQualifier,
@@ -823,6 +826,27 @@ def _get_event_type_name(type_id: int) -> str:
     return event_type_names.get(type_id, "unknown")
 
 
+def _put_challenges_before_their_take_on(events: List[Event]) -> None:
+    """Order every challenge before the take-on that beat it.
+
+    Opta logs the beaten defender's challenge either just before or just
+    after the dribbler's take-on, varying per feed (game 2644657: 11 before,
+    1 after; game 2451852: 5 before, 10 after). As a lost duel after the
+    take-on it would cut the dribbler's carry out of it, so the built events
+    get the one order the carry generator expects. The raw events keep
+    Opta's order: the pass lookaheads read those and handle both.
+    """
+    for idx in range(len(events) - 1):
+        take_on, challenge = events[idx], events[idx + 1]
+        if (
+            isinstance(take_on, TakeOnEvent)
+            and isinstance(challenge, DuelEvent)
+            and challenge.raw_event.type_id == EVENT_TYPE_CHALLENGE
+            and take_on.team != challenge.team
+        ):
+            events[idx], events[idx + 1] = challenge, take_on
+
+
 def _apply_goal_shot_timestamps(raw_events: List[OptaEvent]) -> None:
     """Move goal events onto the moment the shot was struck.
 
@@ -1246,6 +1270,8 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
 
                     if self.should_include_event(event):
                         events.append(transformer.transform_event(event))
+
+        _put_challenges_before_their_take_on(events)
 
         metadata = Metadata(
             teams=list(teams),
