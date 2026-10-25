@@ -13,9 +13,11 @@ from kloppy.domain import (
     CardType,
     CounterAttackQualifier,
     DatasetFlag,
+    DuelEvent,
     DuelQualifier,
     DuelResult,
     DuelType,
+    Event,
     EventDataset,
     ExpectedGoals,
     GoalkeeperActionType,
@@ -38,6 +40,7 @@ from kloppy.domain import (
     SetPieceQualifier,
     SetPieceType,
     ShotResult,
+    TakeOnEvent,
     TakeOnResult,
     Team,
     TechniqueQualifier,
@@ -86,6 +89,7 @@ EVENT_TYPE_TAKE_ON = 3
 EVENT_TYPE_TACKLE = 7
 EVENT_TYPE_AERIAL = 44
 EVENT_TYPE_50_50 = 67
+EVENT_TYPE_CHALLENGE = 45
 EVENT_TYPE_INTERCEPTION = 8
 EVENT_TYPE_CLEARANCE = 12
 EVENT_TYPE_SHOT_MISS = 13
@@ -117,10 +121,15 @@ KEEPER_EVENTS = [
 ]
 
 BALL_OUT_EVENTS = [EVENT_TYPE_BALL_OUT, EVENT_TYPE_CORNER_AWARDED]
+# A challenge is the defender beaten by a take-on: a lost ground duel. The
+# fouled player (foul with outcome 1) is the winner of a ground duel and is
+# routed to _parse_duel separately, since the foul's outcome-0 side stays a
+# foul committed. Both count as ground duels in Opta's own duel definition.
 DUEL_EVENTS = [
     EVENT_TYPE_TACKLE,
     EVENT_TYPE_AERIAL,
     EVENT_TYPE_50_50,
+    EVENT_TYPE_CHALLENGE,
 ]
 
 BALL_OWNING_EVENTS = (
@@ -187,8 +196,6 @@ EVENT_QUALIFIER_FORMATION_PLAYER_POSITIONS = 131
 
 EVENT_QUALIFIER_XG = 321
 EVENT_QUALIFIER_POST_SHOT_XG = 322
-
-EVENT_TYPE_CHALLENGE = 45
 
 event_type_names = {
     1: "pass",
@@ -537,7 +544,11 @@ def _parse_goalkeeper_events(raw_event: OptaEvent) -> Dict:
 
 def _parse_duel(raw_event: OptaEvent) -> Dict:
     qualifiers = _get_event_qualifiers(raw_event.qualifiers)
-    if raw_event.type_id == EVENT_TYPE_TACKLE:
+    if raw_event.type_id in (
+        EVENT_TYPE_TACKLE,
+        EVENT_TYPE_CHALLENGE,
+        EVENT_TYPE_FOUL_COMMITTED,
+    ):
         qualifiers.extend([DuelQualifier(value=DuelType.GROUND)])
     elif raw_event.type_id == EVENT_TYPE_AERIAL:
         qualifiers.extend(
@@ -813,6 +824,27 @@ def _get_event_counter_attack_qualifiers(
 
 def _get_event_type_name(type_id: int) -> str:
     return event_type_names.get(type_id, "unknown")
+
+
+def _put_challenges_before_their_take_on(events: List[Event]) -> None:
+    """Order every challenge before the take-on that beat it.
+
+    Opta logs the beaten defender's challenge either just before or just
+    after the dribbler's take-on, varying per feed (game 2644657: 11 before,
+    1 after; game 2451852: 5 before, 10 after). As a lost duel after the
+    take-on it would cut the dribbler's carry out of it, so the built events
+    get the one order the carry generator expects. The raw events keep
+    Opta's order: the pass lookaheads read those and handle both.
+    """
+    for idx in range(len(events) - 1):
+        take_on, challenge = events[idx], events[idx + 1]
+        if (
+            isinstance(take_on, TakeOnEvent)
+            and isinstance(challenge, DuelEvent)
+            and challenge.raw_event.type_id == EVENT_TYPE_CHALLENGE
+            and take_on.team != challenge.team
+        ):
+            events[idx], events[idx + 1] = challenge, take_on
 
 
 def _apply_goal_shot_timestamps(raw_events: List[OptaEvent]) -> None:
@@ -1129,7 +1161,10 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                             **clearance_event_kwargs,
                             **generic_event_kwargs,
                         )
-                    elif raw_event.type_id in DUEL_EVENTS:
+                    elif raw_event.type_id in DUEL_EVENTS or (
+                        raw_event.type_id == EVENT_TYPE_FOUL_COMMITTED
+                        and raw_event.outcome == 1
+                    ):
                         duel_event_kwargs = _parse_duel(raw_event)
                         event = self.event_factory.build_duel(
                             **duel_event_kwargs,
@@ -1235,6 +1270,8 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
 
                     if self.should_include_event(event):
                         events.append(transformer.transform_event(event))
+
+        _put_challenges_before_their_take_on(events)
 
         metadata = Metadata(
             teams=list(teams),
