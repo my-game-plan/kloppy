@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from enum import Enum
 from typing import Dict, List, Union, Optional
@@ -31,6 +32,8 @@ from kloppy.infra.serializers.event.korastats.helpers import (
     get_team_by_id,
     check_pass_receiver,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class EVENT_CATEGORY_TYPE(Enum):
@@ -784,8 +787,15 @@ class SUBSTITUTION(EVENT):
         ):
             replacement_player_id = prior_event["player_id"]
 
+        # KoraStats sometimes log the SubstituteIn in the other half, or not at
+        # all (Clemson - Florida State, 139943). Dropping that one substitution
+        # beats losing the whole match.
         if replacement_player_id is None:
-            raise ValueError("Substitution event without replacement player")
+            logger.warning(
+                f"Skipping KoraStats substitution {self.raw_event.get('_id')}: "
+                "no SubstituteIn of the same team in the same half"
+            )
+            return []
 
         replacement_player = self.team.get_player_by_id(
             str(replacement_player_id)

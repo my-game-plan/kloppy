@@ -538,6 +538,26 @@ class TestKoraStatsSubstitutionEvent:
         #         replacement_player_id
         #     )
 
+    def test_skip_substitution_without_replacement(self, base_dir):
+        """It should drop a SubstituteOut with no SubstituteIn, not the match.
+
+        Clemson - Florida State (KoraStats 139943) logs a SubstituteIn in the
+        first half whose SubstituteOut is in the second.
+        """
+        raw = json.loads(
+            (base_dir / "files" / "korastats_events.json").read_bytes()
+        )
+        # Its SubstituteOut has no other SubstituteIn next to it to fall back on
+        raw["events"] = [e for e in raw["events"] if e["_id"] != 144902094]
+
+        dataset = korastats.load(
+            event_data=BytesIO(json.dumps(raw).encode()),
+            squads_data=base_dir / "files" / "korastats_squads.json",
+            coordinates="korastats",
+        )
+
+        assert len(dataset.find_all("substitution")) == 7
+
     def test_pair_bracketed_substitutions(self):
         """It should pair out/in even when the pairs are not adjacent.
 
