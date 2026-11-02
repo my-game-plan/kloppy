@@ -290,6 +290,50 @@ class TestAbsTime:
         assert len(per_possession_state) == len(PossessionState)
         assert sum(per_possession_state, timedelta(0)) == expected
 
+    def test_statsbomb_team_possession_state_per_period(self, base_dir):
+        dataset = statsbomb.load(
+            lineup_data=base_dir / "files/statsbomb_lineup.json",
+            event_data=base_dir / "files/statsbomb_event.json",
+        )
+
+        team_items = [
+            item
+            for item in dataset.aggregate(
+                "minutes_played", breakdown_key=BreakdownKey.POSSESSION_STATE
+            )
+            if item.key.team
+        ]
+
+        # One item per team, period and state
+        assert len(team_items) == 2 * len(dataset.metadata.periods) * len(
+            PossessionState
+        )
+        home_team, away_team = dataset.metadata.teams
+        for period in dataset.metadata.periods:
+            per_state = {
+                team: {
+                    item.key.possession_state: item.duration
+                    for item in team_items
+                    if item.key.team == team
+                    and item.key.period_id == period.id
+                }
+                for team in (home_team, away_team)
+            }
+            # Each period accounts for exactly its own duration...
+            for team in (home_team, away_team):
+                assert sum(per_state[team].values(), timedelta()) == (
+                    period.duration
+                )
+            # ...and one team's possession is the other's lack of it, per period
+            assert (
+                per_state[home_team][PossessionState.IN_POSSESSION]
+                == per_state[away_team][PossessionState.OUT_OF_POSSESSION]
+            )
+            assert (
+                per_state[home_team][PossessionState.BALL_DEAD]
+                == per_state[away_team][PossessionState.BALL_DEAD]
+            )
+
     def test_statsbomb_minutes_played_per_possession_state(self, base_dir):
         dataset = statsbomb.load(
             # 3788741
@@ -309,9 +353,13 @@ class TestAbsTime:
                 team = item.key.team
                 if team not in team_minutes_played_map:
                     team_minutes_played_map[team] = {}
-                team_minutes_played_map[team][
-                    item.key.possession_state
-                ] = item.duration
+                # One item per period; sum them to the match.
+                team_minutes_played_map[team][item.key.possession_state] = (
+                    team_minutes_played_map[team].get(
+                        item.key.possession_state, timedelta()
+                    )
+                    + item.duration
+                )
             else:
                 player = item.key.player
                 possession_state = item.key.possession_state

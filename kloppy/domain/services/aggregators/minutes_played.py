@@ -66,6 +66,9 @@ class MinutesPlayedKey:
     team: Optional[Team] = None
     position: Optional[PositionType] = None
     possession_state: Optional[PossessionState] = None
+    # Set on the team items of the possession-state breakdown, which come one
+    # per period so a half can be read on its own.
+    period_id: Optional[int] = None
 
     def __post_init__(self):
         if (self.player is None and self.team is None) or (
@@ -137,7 +140,9 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
 
     @staticmethod
     def _handle_possession_state_end(
-        time_per_possession_state: Dict[PossessionState, timedelta],
+        time_per_possession_state: Dict[
+            Tuple[int, PossessionState], timedelta
+        ],
         time_per_player: Dict[Player, Dict[PossessionState, timedelta]],
         players_on_pitch: Dict[Player, List[Tuple[Time, Time]]],
         start_time: Time,
@@ -149,7 +154,11 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
         possession_state = MinutesPlayedAggregator.get_possession_state(
             ball_state, ball_owning_team, first_team
         )
-        time_per_possession_state[possession_state] += end_time - start_time
+        # A segment never spans two periods: the loop closes it at the period
+        # end before the next period's first event opens a new one.
+        time_per_possession_state[
+            (start_time.period.id, possession_state)
+        ] += (end_time - start_time)
         MinutesPlayedAggregator._accumulate_player_time(
             time_per_player,
             players_on_pitch,
@@ -209,7 +218,9 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                     if spells:
                         players_on_pitch[player] = spells
             time_per_possession_state = {
-                state: timedelta(0) for state in PossessionState
+                (period.id, state): timedelta(0)
+                for period in dataset.metadata.periods
+                for state in PossessionState
             }
             time_per_player = {
                 player: {state: timedelta(0) for state in PossessionState}
@@ -342,21 +353,26 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
 
             for team in dataset.metadata.teams:
                 flip_possession = team != first_team
-                for state, duration in time_per_possession_state.items():
-                    possession_state = self._flip_possession_state(
-                        state, flip_possession
-                    )
-
-                    items.append(
-                        MinutesPlayed(
-                            key=MinutesPlayedKey(
-                                team=team, possession_state=possession_state
-                            ),
-                            start_time=dataset.metadata.periods[0].start_time,
-                            end_time=dataset.metadata.periods[1].end_time,
-                            duration=duration,
+                for period in dataset.metadata.periods:
+                    for state in PossessionState:
+                        possession_state = self._flip_possession_state(
+                            state, flip_possession
                         )
-                    )
+
+                        items.append(
+                            MinutesPlayed(
+                                key=MinutesPlayedKey(
+                                    team=team,
+                                    possession_state=possession_state,
+                                    period_id=period.id,
+                                ),
+                                start_time=period.start_time,
+                                end_time=period.end_time,
+                                duration=time_per_possession_state[
+                                    (period.id, state)
+                                ],
+                            )
+                        )
                 for player in team.players:
                     if player in time_per_player:
                         for state, duration in time_per_player[player].items():
