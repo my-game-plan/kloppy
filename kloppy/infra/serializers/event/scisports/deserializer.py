@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import timedelta
-from typing import IO, NamedTuple, Optional, Dict, Any, List
+from typing import IO, NamedTuple, Optional, Dict, Any, List, Tuple
 
 from kloppy.domain import (
     DatasetFlag,
@@ -397,11 +397,11 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
         self,
         raw_events: List[Dict[str, Any]],
         players_by_raw_id: Dict[str, Player],
-    ) -> Dict[str, Player]:
+    ) -> Dict[str, Tuple[Player, Optional[PositionType]]]:
         """Pre-process substitution events to pair SUBBED_OUT with SUBBED_IN events"""
         substitution_pairs = (
             {}
-        )  # Maps SUBBED_OUT event_id to replacement Player
+        )  # Maps SUBBED_OUT event_id to (replacement Player, their position)
         used_subbed_in_events = (
             set()
         )  # Track which SUBBED_IN events have been used
@@ -409,6 +409,13 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
         # Group substitution events by team and timestamp to find proper pairs
         subbed_out_events = []
         subbed_in_events = []
+        # SciSports tags where a substitute plays with a PLAYER_STARTING_POSITION
+        # row of their own, one per substitute, stamped wherever the tagger
+        # entered it (at the substitution, or at half time for every later sub
+        # too). The SUBBED_IN row carries no new position: UNKNOWN on a first
+        # entry, the player's old one on a rolling re-entry.
+        position_by_player = {}
+        first_entry_by_player = {}
 
         for event in raw_events:
             if event.get("baseTypeName") == "SUBSTITUTE":
@@ -416,6 +423,19 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
                     subbed_out_events.append(event)
                 elif event.get("subTypeName") == "SUBBED_IN":
                     subbed_in_events.append(event)
+                    player_id = event.get("playerId")
+                    first = first_entry_by_player.get(player_id)
+                    if first is None or event.get(
+                        "startTimeMs", 0
+                    ) < first.get("startTimeMs", 0):
+                        first_entry_by_player[player_id] = event
+            elif (
+                event.get("baseTypeName") == "POSITION"
+                and event.get("subTypeId") == 1800
+            ):  # PLAYER_STARTING_POSITION
+                position_by_player[event.get("playerId")] = event.get(
+                    "positionTypeId", -1
+                )
 
         # Pair each SUBBED_OUT with the closest unused SUBBED_IN from the same team
         for out_event in subbed_out_events:
@@ -448,9 +468,27 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
                     replacement_player_id
                 )
                 if replacement_player:
-                    substitution_pairs[
-                        str(out_event.get("eventId"))
-                    ] = replacement_player
+                    # A bench player's first entry takes their tagged position.
+                    # A starter's row is his kick-off slot and a later entry
+                    # has none of its own, so those take the replaced
+                    # player's slot (position None).
+                    replacement_position = None
+                    if (
+                        not replacement_player.starting
+                        and first_entry_by_player.get(
+                            best_match.get("playerId")
+                        )
+                        is best_match
+                    ):
+                        replacement_position = SS.get_position_type(
+                            position_by_player.get(
+                                best_match.get("playerId"), -1
+                            )
+                        )
+                    substitution_pairs[str(out_event.get("eventId"))] = (
+                        replacement_player,
+                        replacement_position,
+                    )
                     used_subbed_in_events.add(best_match.get("eventId"))
 
         return substitution_pairs
@@ -461,7 +499,9 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
         teams: Dict[str, Team],
         players_by_raw_id: Dict[str, Player],
         periods: list[Period],
-        substitution_pairs: Dict[str, Player] = None,
+        substitution_pairs: Dict[
+            str, Tuple[Player, Optional[PositionType]]
+        ] = None,
         possession_team: Team = None,
     ) -> List[Any]:
         """Create Event objects from raw SciSports event data using the new event classes"""
@@ -486,6 +526,7 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
 
         # For substitution events, check if we have a replacement player
         replacement_player = None
+        replacement_position = None
         if (
             substitution_pairs
             and raw_event.get("baseTypeName") == "SUBSTITUTE"
@@ -493,13 +534,17 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
         ):
 
             event_id = str(raw_event.get("eventId"))
-            replacement_player = substitution_pairs.get(event_id)
+            replacement_player, replacement_position = substitution_pairs.get(
+                event_id, (None, None)
+            )
 
         # Deserialize the event using the event factory
         # Pass replacement player information for substitution events
         if replacement_player:
             events = event_obj.deserialize(
-                self.event_factory, replacement_player=replacement_player
+                self.event_factory,
+                replacement_player=replacement_player,
+                position=replacement_position,
             )
         else:
             events = event_obj.deserialize(self.event_factory)
