@@ -765,6 +765,7 @@ def _parse_substitutions(
     deserializer, raw_events, players, teams, periods, transformer
 ):
     periods_minute_offsets = {1: 0, 2: 45, 3: 90, 4: 105}
+    periods_by_id = {period.id: period for period in periods}
     substitution_events = []
     for team_id, periods_subs in raw_events["substitutions"].items():
         sub_team = teams[team_id]
@@ -773,7 +774,16 @@ def _parse_substitutions(
         ]["substitutions"]
         for raw_period, sub_info in periods_subs.items():
             period_id = _parse_period_id(raw_period)
-            sub_period = periods[period_id - 1]
+            sub_period = periods_by_id.get(period_id)
+            # periods are built from the event stream, so a period without
+            # events has no Period to put the substitution in
+            if sub_period is None:
+                warnings.warn(
+                    f"Skipping substitutions of team {team_id} in period {raw_period}: "
+                    f"the event stream has no events in that period.",
+                    DeserializationWarning,
+                )
+                continue
             if isinstance(sub_info, dict):
                 for raw_seconds, players_info in sub_info.items():
                     subs_out = players_info["out"]

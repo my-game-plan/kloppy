@@ -59,7 +59,11 @@ from kloppy.exceptions import DeserializationError
 from kloppy.infra.serializers.event.statsbomb.helpers import parse_str_ts
 
 ENABLE_PLOTTING = True
-API_URL = "https://raw.githubusercontent.com/statsbomb/open-data/master/data/"
+# Pinned: StatsBomb republished this match on 2026-05-26 (open-data b0bc9f22)
+# with fresh event UUIDs, which broke every get_event_by_id() below.
+API_URL = (
+    "https://raw.githubusercontent.com/statsbomb/open-data/0bb2d94a1468/data/"
+)
 
 
 def test_with_visualization():
