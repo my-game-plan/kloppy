@@ -18,6 +18,7 @@ from kloppy.domain import (
     Orientation,
     PassResult,
     PassType,
+    PositionType,
     Point,
     Provider,
     SetPieceType,
@@ -572,6 +573,33 @@ class TestSciSportsSubstitutionEvent:
         # Negative on purpose: the substitution was made during half time, so it
         # precedes the restart that now defines the period's start.
         assert sub_event.time.timestamp == timedelta(seconds=-0.147)
+
+    def test_substitute_takes_tagged_position(self, dataset: EventDataset):
+        """A substitute plays where SciSports tagged them in, not in the slot
+        of the player they replaced (TAS-4399)"""
+        sub_event = dataset.get_event_by_id("1141")
+        assert sub_event.player.player_id == "Player 05"
+        assert sub_event.replacement_player.player_id == "Player 03"
+        # Player 05 started at CF; Player 03 was tagged LW when he came on
+        assert sub_event.position == PositionType.LeftWing
+        assert (
+            sub_event.replacement_player.positions.value_at(sub_event.time)
+            == PositionType.LeftWing
+        )
+
+    def test_rolling_reentry_keeps_replaced_position(
+        self, dataset: EventDataset
+    ):
+        """A rolling re-entry has no position tagged at its time (its SUBBED_IN
+        row repeats their old RB), so they take the replaced player's slot"""
+        sub_event = dataset.get_event_by_id("1319")
+        assert sub_event.player.player_id == "Player 23"
+        assert sub_event.replacement_player.player_id == "Player 09"
+        assert sub_event.position is None
+        assert (
+            sub_event.replacement_player.positions.value_at(sub_event.time)
+            == PositionType.CenterBack
+        )
 
 
 class TestSciSportsCarryEvent:
