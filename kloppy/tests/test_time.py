@@ -416,10 +416,13 @@ class TestAbsTime:
         assert sum(playtime_coutinho.values(), timedelta()) == timedelta(
             seconds=2852.053
         )
+        # The block at P2T32:25 that puts the ball out before a throw-in has
+        # been an interception since kloppy#15 (e3e9a02d), so the dead ball
+        # starts at the block, not 0.597s earlier at the pass before it.
         assert playtime_coutinho == {
-            PossessionState.IN_POSSESSION: timedelta(seconds=1559.075),
+            PossessionState.IN_POSSESSION: timedelta(seconds=1559.672),
             PossessionState.OUT_OF_POSSESSION: timedelta(seconds=287.916),
-            PossessionState.BALL_DEAD: timedelta(seconds=1005.062),
+            PossessionState.BALL_DEAD: timedelta(seconds=1004.465),
         }
 
         # Replaced in second half
@@ -429,10 +432,11 @@ class TestAbsTime:
             seconds=5052.343
         )
 
+        # Both blocks before a set piece (P1T17:34, 0.800s; P2T32:25, 0.597s)
         assert playtime_busquets == {
-            PossessionState.IN_POSSESSION: timedelta(seconds=2751.232000),
+            PossessionState.IN_POSSESSION: timedelta(seconds=2752.629000),
             PossessionState.OUT_OF_POSSESSION: timedelta(seconds=611.662000),
-            PossessionState.BALL_DEAD: timedelta(seconds=1689.449000),
+            PossessionState.BALL_DEAD: timedelta(seconds=1688.052000),
         }
 
         # Played entire match
@@ -443,9 +447,9 @@ class TestAbsTime:
             + dataset.metadata.periods[1].duration
         )
         assert playtime_ramos == {
-            PossessionState.IN_POSSESSION: timedelta(seconds=3016.821000),
+            PossessionState.IN_POSSESSION: timedelta(seconds=3018.218000),
             PossessionState.OUT_OF_POSSESSION: timedelta(seconds=677.191000),
-            PossessionState.BALL_DEAD: timedelta(seconds=1863.308000),
+            PossessionState.BALL_DEAD: timedelta(seconds=1861.911000),
         }
         assert playtime_ramos == team_minutes_played_map[home_team]
 

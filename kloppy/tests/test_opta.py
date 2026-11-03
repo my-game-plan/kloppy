@@ -19,6 +19,9 @@ from kloppy.domain import (
     FormationType,
     GoalkeeperActionType,
     GoalkeeperQualifier,
+    InterceptionQualifier,
+    InterceptionResult,
+    InterceptionType,
     Orientation,
     PassQualifier,
     PassType,
@@ -610,10 +613,19 @@ class TestOptaBlockEvent:
     """Tests related to deserializing block events"""
 
     def test_correct_deserialization(self, dataset: EventDataset):
-        """Test if the block event is correctly deserialized"""
+        """Test if the block event is correctly deserialized
+
+        A "save" by an outfield player (qualifier 94) is a shot block, which
+        the MGP fork deserializes as an interception (kloppy#15, e3e9a02d)
+        where upstream kloppy keeps a generic "block" event.
+        """
         event = dataset.get_event_by_id("1515097981")
-        assert event.event_type == EventType.GENERIC
-        assert event.event_name == "block"
+        assert event.event_type == EventType.INTERCEPTION
+        assert (
+            event.get_qualifier_value(InterceptionQualifier)
+            == InterceptionType.SHOT_BLOCK
+        )
+        assert event.result == InterceptionResult.SUCCESS
 
 
 class TestOptaAbandonment:
