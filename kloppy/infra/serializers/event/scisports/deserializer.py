@@ -469,7 +469,7 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
                 )
                 if replacement_player:
                     # A bench player's first entry takes their tagged position.
-                    # A starter's row is his kick-off slot and a later entry
+                    # A starter's row is their kick-off slot and a later entry
                     # has none of its own, so those take the replaced
                     # player's slot (position None).
                     replacement_position = None

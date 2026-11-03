@@ -576,7 +576,7 @@ class TestSciSportsSubstitutionEvent:
 
     def test_substitute_takes_tagged_position(self, dataset: EventDataset):
         """A substitute plays where SciSports tagged them in, not in the slot
-        of the player he replaced (TAS-4399)"""
+        of the player they replaced (TAS-4399)"""
         sub_event = dataset.get_event_by_id("1141")
         assert sub_event.player.player_id == "Player 05"
         assert sub_event.replacement_player.player_id == "Player 03"
