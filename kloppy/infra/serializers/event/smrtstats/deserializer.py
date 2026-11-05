@@ -1,5 +1,6 @@
 import json
 import logging
+from collections import Counter
 from dataclasses import replace
 from datetime import timedelta
 from typing import Dict, List, Tuple, NamedTuple, IO, Optional
@@ -174,6 +175,9 @@ PASS_INTO_DUEL_MINUS = 203
 BOUNCING_SAVE_PLUS = 204
 BOUNCING_SAVE_MINUS = 205
 YELLOW_RED_CARD = 206
+# Only a keeper ever has one: 680 of 680 in 53 feeds of Sep-Nov 2026 were by
+# a player with a Goalkeeper position marker.
+KEEPER_PICK_UP = 9008
 
 # The markers that delimit periods rather than describe play. Used to tell
 # "did anything actually happen between these two seconds?" apart from
@@ -1028,32 +1032,50 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
         # its substitutes get one (e.g. 748536 Académica-Lusitania, where
         # Académica's XI is absent from the markers but plays the whole
         # match). Every other creator of that team then started, so register
-        # them as starters with an unknown position rather than leaving their
-        # events without a player.
+        # them as starters rather than leaving their events without a player.
+        # Their position is unknown, except the keeper's: the starter with
+        # the most keeper pick-ups (a keeper coming on has their own marker).
         for team in (home_team, away_team):
             if any(player.starting for player in team.players):
                 continue
-            for marker in (
-                "first_half_markers",
-                "first_extra_time_markers",
-                "second_extra_time_markers",
-                "second_half_markers",
-            ):
-                for event in raw_events.get(marker) or []:
-                    if (
-                        event["action_id"] in ACTION_IDS_TO_IGNORE
-                        or str(event["creator_team_id"]) != team.team_id
-                        or not event["creator_id"]
-                        or team.get_player_by_id(str(event["creator_id"]))
-                    ):
-                        continue
-                    team.players.append(
-                        replace(
-                            create_player(event, team),
-                            starting=True,
-                            starting_position=None,
-                        )
+            team_events = [
+                event
+                for marker in (
+                    "first_half_markers",
+                    "first_extra_time_markers",
+                    "second_extra_time_markers",
+                    "second_half_markers",
+                )
+                for event in raw_events.get(marker) or []
+                if str(event["creator_team_id"]) == team.team_id
+                and event["creator_id"]
+            ]
+            starters = {}
+            for event in team_events:
+                creator_id = str(event["creator_id"])
+                if (
+                    event["action_id"] not in ACTION_IDS_TO_IGNORE
+                    and creator_id not in starters
+                    and not team.get_player_by_id(creator_id)
+                ):
+                    starters[creator_id] = replace(
+                        create_player(event, team),
+                        starting=True,
+                        starting_position=None,
                     )
+            pick_ups = Counter(
+                str(event["creator_id"])
+                for event in team_events
+                if event["action_id"] == KEEPER_PICK_UP
+                and str(event["creator_id"]) in starters
+            )
+            if pick_ups:
+                keeper_id = pick_ups.most_common(1)[0][0]
+                starters[keeper_id] = replace(
+                    starters[keeper_id],
+                    starting_position=PositionType.Goalkeeper,
+                )
+            team.players.extend(starters.values())
 
         return home_team, away_team
 
@@ -1589,20 +1611,16 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                         )
                     elif action_id in GOALKEEPER_IDS:
                         # EFFECTIVE_SAVE can be performed by field players
-                        # In that case, create a recovery event instead.
-                        # A starter from a feed without kick-off position
-                        # markers has no position; their save stays a save,
-                        # as they are most likely the keeper.
-                        position_unknown = player is None or (
-                            player.starting
-                            and player.starting_position is None
+                        # In that case, create a recovery event instead
+                        # Try to get current position from positions container,
+                        # fall back to starting position
+                        current_position = (
+                            player.starting_position if player else None
                         )
 
                         if (
                             action_id == EFFECTIVE_SAVE
-                            and not position_unknown
-                            and player.starting_position
-                            != PositionType.Goalkeeper
+                            and current_position != PositionType.Goalkeeper
                         ):
                             event = self.event_factory.build_recovery(
                                 result=None,

@@ -2308,14 +2308,22 @@ class TestSmrtStatsMissingStartingLineup:
             coordinates="smrtstats",
         )
 
-    def test_the_starters_are_registered_without_a_position(self, dataset):
+    def test_the_starters_are_registered(self, dataset):
         academica = dataset.metadata.teams[0]
         starters = [p for p in academica.players if p.starting]
 
         assert academica.name == "Academica"
         assert len(starters) == 11
-        assert all(p.starting_position is None for p in starters)
-        assert academica.get_player_by_id("202516").starting
+
+    def test_the_keeper_is_the_starter_with_pick_ups(self, dataset):
+        academica = dataset.metadata.teams[0]
+        starters = [p for p in academica.players if p.starting]
+        keeper = academica.get_player_by_id("202516")
+
+        assert keeper.starting_position == PositionType.Goalkeeper
+        assert all(
+            p.starting_position is None for p in starters if p is not keeper
+        )
 
     def test_every_event_of_the_team_has_a_player(self, dataset):
         academica = dataset.metadata.teams[0]
@@ -2324,13 +2332,17 @@ class TestSmrtStatsMissingStartingLineup:
             e.player is not None for e in dataset.events if e.team == academica
         )
 
-    def test_a_save_by_a_starter_of_unknown_position_stays_a_save(
-        self, dataset
-    ):
+    def test_a_save_by_the_keeper_stays_a_save(self, dataset):
         save = dataset.get_event_by_id("618744011")
 
         assert save.event_type == EventType.GOALKEEPER
         assert save.player.player_id == "202516"
+
+    def test_a_save_by_an_outfield_starter_is_a_recovery(self, dataset):
+        block = dataset.get_event_by_id("618744443")
+
+        assert block.event_type == EventType.RECOVERY
+        assert block.player.player_id == "475697"
 
     def test_the_starters_play_the_whole_match(self, dataset):
         minutes = {
