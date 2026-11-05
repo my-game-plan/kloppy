@@ -2291,3 +2291,65 @@ class TestKickoffAdvanceAcrossASubstitutionAtTheRestart:
         p2 = SmrtStatsDeserializer.create_periods(feed)[1]
 
         assert p2.start_timestamp == timedelta(seconds=2826.83)
+
+
+class TestSmrtStatsMissingStartingLineup:
+    """748536 Académica-Lusitania: Académica's XI has no kick-off position
+    markers, only its five substitutes do. Its starters used to be missing
+    from the line-up, so their events had no player and a save by the
+    keeper crashed the deserializer."""
+
+    @pytest.fixture(scope="class")
+    def dataset(self, base_dir) -> EventDataset:
+        return smrtstats.load(
+            raw_data=base_dir
+            / "files"
+            / "smrtstats_missing_lineup_748536.json",
+            coordinates="smrtstats",
+        )
+
+    def test_the_starters_are_registered(self, dataset):
+        academica = dataset.metadata.teams[0]
+        starters = [p for p in academica.players if p.starting]
+
+        assert academica.name == "Academica"
+        assert len(starters) == 11
+
+    def test_the_keeper_is_the_starter_with_pick_ups(self, dataset):
+        academica = dataset.metadata.teams[0]
+        starters = [p for p in academica.players if p.starting]
+        keeper = academica.get_player_by_id("202516")
+
+        assert keeper.starting_position == PositionType.Goalkeeper
+        assert all(
+            p.starting_position is None for p in starters if p is not keeper
+        )
+
+    def test_every_event_of_the_team_has_a_player(self, dataset):
+        academica = dataset.metadata.teams[0]
+
+        assert all(
+            e.player is not None for e in dataset.events if e.team == academica
+        )
+
+    def test_a_save_by_the_keeper_stays_a_save(self, dataset):
+        save = dataset.get_event_by_id("618744011")
+
+        assert save.event_type == EventType.GOALKEEPER
+        assert save.player.player_id == "202516"
+
+    def test_a_save_by_an_outfield_starter_is_a_recovery(self, dataset):
+        block = dataset.get_event_by_id("618744443")
+
+        assert block.event_type == EventType.RECOVERY
+        assert block.player.player_id == "475697"
+
+    def test_the_starters_play_the_whole_match(self, dataset):
+        minutes = {
+            item.key.player.player_id: item.duration
+            for item in dataset.aggregate("minutes_played")
+            if item.key.player is not None
+        }
+
+        assert minutes["202516"] == minutes["202533"]
+        assert minutes["202516"] > timedelta(minutes=90)
