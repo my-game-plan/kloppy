@@ -19,6 +19,8 @@ from kloppy.infra.serializers.event.smrtstats.deserializer import (
     SUBSTITUTION,
     SmrtStatsDeserializer,
     _advance_starts_to_kickoff,
+    _formation_from_title,
+    _is_formation,
 )
 from kloppy.domain import (
     BallState,
@@ -2353,3 +2355,53 @@ class TestSmrtStatsMissingStartingLineup:
 
         assert minutes["202516"] == minutes["202533"]
         assert minutes["202516"] > timedelta(minutes=90)
+
+
+class TestSmrtStatsFormations:
+    """The shape is read off the marker title, whatever its action id
+    (TAS-4434: ids 207-212 and 681-689 were dropped as no formation)."""
+
+    @pytest.mark.parametrize(
+        "title, expected",
+        [
+            ("4-2-3-1", "4-2-3-1"),
+            ("4-4-2 classic", "4-4-2"),
+            ("4-4-2 diamond", "4-4-2"),
+            ("3-4-3 Diamond", "3-4-3-d"),
+            ("5-3-2", "5-3-2"),
+            ("5-4-1", "5-4-1"),
+            ("4-5-1", "4-5-1"),
+            ("4-4-1-1", "4-4-1-1"),
+            ("3-4-1-2", "3-4-1-2"),
+            ("4-3-2-1", "4-3-2-1"),
+            ("4-2-2-2", "4-2-2-2"),
+            ("3-5-1-1", "3-5-1-1"),
+            ("3-1-4-2", "3-1-4-2"),
+            ("4-1-3-2", "4-1-3-2"),
+            ("4-3-1-2", "4-3-1-2"),
+            ("3-2-4-1", "3-2-4-1"),
+            ("3-4-2-1", "3-4-2-1"),
+        ],
+    )
+    def test_every_title_in_the_feed_maps(self, title, expected):
+        assert _formation_from_title(title) == FormationType(expected)
+
+    def test_a_non_shape_title_is_not_a_formation(self):
+        assert not _is_formation({"action": {"title": "RD"}})
+        assert not _is_formation({"action": {"title": "1st half"}})
+        assert _formation_from_title("9-9-9") is None
+
+    def test_an_unlisted_action_id_still_sets_the_starting_formation(
+        self, base_dir, tmp_path
+    ):
+        raw = json.loads((base_dir / "files" / "smrtstats.json").read_text())
+        for event in raw["first_half_markers"]:
+            if event["action_id"] == 111 and event["creator_team_id"] == 12772:
+                event["action_id"] = 207
+                event["action"] = {"id": 207, "title": "5-3-2"}
+        path = tmp_path / "smrtstats_532.json"
+        path.write_text(json.dumps(raw))
+        dataset = smrtstats.load(raw_data=path, coordinates="smrtstats")
+        teams = {t.team_id: t for t in dataset.metadata.teams}
+        assert teams["12772"].starting_formation == FormationType("5-3-2")
+        assert teams["12809"].starting_formation == FormationType("4-1-4-1")

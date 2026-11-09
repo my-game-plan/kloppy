@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from collections import Counter
 from dataclasses import replace
 from datetime import timedelta
@@ -56,17 +57,35 @@ from kloppy.utils import performance_logging
 
 from ..deserializer import EventDataDeserializer
 
-FORMATIONS = {
-    111: FormationType.FOUR_ONE_FOUR_ONE,
-    106: FormationType.THREE_FIVE_TWO,
-    105: FormationType.THREE_FIVE_TWO,
-    103: FormationType.THREE_THREE_THREE_ONE,
-    96: FormationType.FOUR_FOUR_TWO,
-    90: FormationType.THREE_FOUR_THREE,
-    82: FormationType.FOUR_TWO_THREE_ONE,
-    16: FormationType.FOUR_FOUR_TWO,
-    3: FormationType.FOUR_THREE_THREE,
-}
+# SmrtStats names a team's shape in the title of a team-level marker ("5-3-2",
+# "4-4-2 classic", "3-4-3 Diamond"). The action id behind it is a catalogue
+# that keeps growing (5-3-2 is 207, 3-4-2-1 is 689), and an id table here had
+# frozen on the nine ids of its first match: every newer shape was dropped and
+# stored as no formation at all (TAS-4434). So the shape is read off the title.
+FORMATION_TITLE = re.compile(r"(\d(?:-\d)+)(?: (\w+))?")
+
+
+def _is_formation(raw_event: Dict) -> bool:
+    title = (raw_event.get("action") or {}).get("title") or ""
+    return FORMATION_TITLE.fullmatch(title.strip().lower()) is not None
+
+
+def _formation_from_title(title: str) -> Optional[FormationType]:
+    match = FORMATION_TITLE.fullmatch(title.strip().lower())
+    if match is None:
+        return None
+    shape, variant = match.groups()
+    # "3-4-3 Diamond" has a member of its own; "4-4-2 diamond" has none and
+    # stays 4-4-2, as it always has been stored.
+    candidates = [f"{shape}-d", shape] if variant == "diamond" else [shape]
+    for candidate in candidates:
+        try:
+            return FormationType(candidate)
+        except ValueError:
+            continue
+    logger.warning(f"SmrtStats formation {title!r} has no FormationType")
+    return None
+
 
 POSITIONS = {
     4: PositionType.Goalkeeper,  # GK
@@ -283,33 +302,29 @@ DERIVED_POSSESSION_ACTION_IDS = frozenset(
 # and keeps every marker above.
 ON_BALL_ACTION_IDS = OPEN_PLAY_ACTION_IDS - DERIVED_POSSESSION_ACTION_IDS
 
-ACTION_IDS_TO_IGNORE = (
-    [
-        FIRST_HALF,
-        RECOVERED_BALL,
-        DRIBBLING,
-        GS_OPP_CREATED,
-        GS_OPP_NOT_SCORED,
-        GS_OPPORTUNITY_MINUS,
-        GS_OPPORTUNITY_PLUS,
-        GS_OPP_SCORED,
-        HALF_TIME,
-        SECOND_HALF,
-        FIRST_HALF_ADDITIONAL_TIME_START,
-        SECOND_HALF_ADDITIONAL_TIME_START,
-        MATCH_END,
-        BALL_OUT_OF_THE_FIELD,
-        LOST_BALL,
-        CREATED_OFFSIDE_TRAP,
-        BLOCKED_SHOT_BY_FIELD_PLAYER,
-        BALL_RECEIVING,
-        GRAVE_MISTAKE,
-        GRAVE_GOAL_MISTAKE,
-        ASSIST,  # This is added as a separate event besides the pass
-    ]
-    + list(FORMATIONS.keys())
-    + list(POSITIONS.keys())
-)
+ACTION_IDS_TO_IGNORE = [
+    FIRST_HALF,
+    RECOVERED_BALL,
+    DRIBBLING,
+    GS_OPP_CREATED,
+    GS_OPP_NOT_SCORED,
+    GS_OPPORTUNITY_MINUS,
+    GS_OPPORTUNITY_PLUS,
+    GS_OPP_SCORED,
+    HALF_TIME,
+    SECOND_HALF,
+    FIRST_HALF_ADDITIONAL_TIME_START,
+    SECOND_HALF_ADDITIONAL_TIME_START,
+    MATCH_END,
+    BALL_OUT_OF_THE_FIELD,
+    LOST_BALL,
+    CREATED_OFFSIDE_TRAP,
+    BLOCKED_SHOT_BY_FIELD_PLAYER,
+    BALL_RECEIVING,
+    GRAVE_MISTAKE,
+    GRAVE_GOAL_MISTAKE,
+    ASSIST,  # This is added as a separate event besides the pass
+] + list(POSITIONS.keys())
 ACTION_IDS_TO_IGNORE += [TOUCH]
 
 PASS_IDS = [
@@ -368,9 +383,7 @@ FOUL_IDS = [FOUL, OFFSIDE]
 
 BALL_OWNING_IDS = PASS_IDS + TAKE_ON_IDS + SHOT_IDS
 
-LINEUP_INFORMATION_EVENTS = (
-    list(FORMATIONS.keys()) + list(POSITIONS.keys()) + [FIRST_HALF]
-)
+LINEUP_INFORMATION_EVENTS = list(POSITIONS.keys()) + [FIRST_HALF]
 
 logger = logging.getLogger(__name__)
 
@@ -1018,15 +1031,12 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                         raise DeserializationError(
                             f"Unexpected team id: {event['creator_team_id']}"
                         )
-                elif action_id in FORMATIONS and idx == 0:
+                elif idx == 0 and _is_formation(event):
+                    formation = _formation_from_title(event["action"]["title"])
                     if str(event["creator_team_id"]) == home_team.team_id:
-                        home_team.starting_formation = FORMATIONS[
-                            event["action_id"]
-                        ]
+                        home_team.starting_formation = formation
                     elif str(event["creator_team_id"]) == away_team.team_id:
-                        away_team.starting_formation = FORMATIONS[
-                            event["action_id"]
-                        ]
+                        away_team.starting_formation = formation
 
         # Some feeds carry no kick-off position markers for one team: only
         # its substitutes get one (e.g. 748536 Académica-Lusitania, where
@@ -1055,6 +1065,7 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                 creator_id = str(event["creator_id"])
                 if (
                     event["action_id"] not in ACTION_IDS_TO_IGNORE
+                    and not _is_formation(event)
                     and creator_id not in starters
                     and not team.get_player_by_id(creator_id)
                 ):
@@ -1493,6 +1504,7 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                 action_title = raw_event["action"]["title"].lower()
                 if (
                     action_id not in ACTION_IDS_TO_IGNORE
+                    and not _is_formation(raw_event)
                     and raw_event["creator_team_id"]
                     and raw_event["creator_id"]
                 ):
