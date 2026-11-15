@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from typing import Tuple
 
@@ -289,6 +290,61 @@ class TestAbsTime:
         ]
         assert len(per_possession_state) == len(PossessionState)
         assert sum(per_possession_state, timedelta(0)) == expected
+
+    def test_first_half_only_dataset(self, base_dir, tmp_path):
+        # A live feed before the second half starts holds only period 1.
+        # The aggregator must not need a second period: the match ends at the
+        # end of the only period there is.
+        with open(base_dir / "files/statsbomb_event.json") as f:
+            events = json.load(f)
+        event_data = tmp_path / "statsbomb_event_first_half.json"
+        with open(event_data, "w") as f:
+            json.dump([e for e in events if e["period"] == 1], f)
+
+        dataset = statsbomb.load(
+            lineup_data=base_dir / "files/statsbomb_lineup.json",
+            event_data=event_data,
+        )
+        assert len(dataset.metadata.periods) == 1
+        (period1,) = dataset.metadata.periods
+
+        minutes_played = dataset.aggregate("minutes_played")
+        team_items = [item for item in minutes_played if item.key.team]
+        assert len(team_items) == 2
+        for item in team_items:
+            assert item.start_time == period1.start_time
+            assert item.end_time == period1.end_time
+            assert item.duration == period1.duration
+
+        # Ramos (5211) plays the whole first half.
+        ramos = dataset.metadata.teams[0].get_player_by_id(5211)
+        per_player = {
+            item.key.player: item.duration
+            for item in minutes_played
+            if item.key.player
+        }
+        assert per_player[ramos] == period1.duration
+
+        per_possession_state = dataset.aggregate(
+            "minutes_played", breakdown_key=BreakdownKey.POSSESSION_STATE
+        )
+        player_items = [
+            item for item in per_possession_state if item.key.player
+        ]
+        assert player_items
+        for item in player_items:
+            assert item.end_time == period1.end_time
+        assert (
+            sum(
+                (
+                    item.duration
+                    for item in player_items
+                    if item.key.player == ramos
+                ),
+                timedelta(0),
+            )
+            == period1.duration
+        )
 
     def test_statsbomb_team_possession_state_per_period(self, base_dir):
         dataset = statsbomb.load(

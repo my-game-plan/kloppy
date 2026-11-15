@@ -186,6 +186,18 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                     )
                     time_per_player[player][possession_state] += duration
 
+    @staticmethod
+    def _match_end_time(dataset: EventDataset) -> Time:
+        """End of the match as the team totals count it.
+
+        That is the end of the second period, so extra time and a penalty
+        shootout are not counted. A dataset that holds only the first period
+        (a live feed before the second half starts) ends at the end of that
+        period.
+        """
+        periods = dataset.metadata.periods
+        return periods[min(1, len(periods) - 1)].end_time
+
     def aggregate(self, dataset: EventDataset) -> List[MinutesPlayed]:
 
         items = []
@@ -388,15 +400,13 @@ class MinutesPlayedAggregator(EventDatasetAggregator):
                                     start_time=dataset.metadata.periods[
                                         0
                                     ].start_time,
-                                    end_time=dataset.metadata.periods[
-                                        1
-                                    ].end_time,
+                                    end_time=self._match_end_time(dataset),
                                     duration=duration,
                                 )
                             )
         else:
             _start_time = dataset.metadata.periods[0].start_time
-            _end_time = dataset.metadata.periods[1].end_time
+            _end_time = self._match_end_time(dataset)
             for team in dataset.metadata.teams:
                 items.append(
                     MinutesPlayed(
