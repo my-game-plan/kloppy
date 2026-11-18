@@ -8,15 +8,34 @@ import pytz
 from .base import OptaEvent, OptaXMLParser
 
 
-def _parse_f24_datetime(dt_str: str) -> datetime:
+def _parse_naive(dt_str: str) -> datetime:
     def zero_pad_milliseconds(timestamp):
         parts = timestamp.split(".")
         if len(parts) == 1:
             return timestamp + ".000"
         return ".".join(parts[:-1] + [f"{int(parts[-1]):03d}"])
 
-    dt_str = zero_pad_milliseconds(dt_str)
-    naive_datetime = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S.%f")
+    return datetime.strptime(
+        zero_pad_milliseconds(dt_str), "%Y-%m-%dT%H:%M:%S.%f"
+    )
+
+
+def _parse_f24_datetime(
+    dt_str: str, utc_dt_str: Optional[str] = None
+) -> datetime:
+    """Parse an F24 wall-clock time into an aware UTC datetime.
+
+    F24's `timestamp` is London local time, which is ambiguous for the hour
+    the clocks go back (01:00-01:59 occurs once in BST and again in GMT) and
+    pytz silently resolves every such time as GMT. A match played across that
+    hour then has its BST stretch pushed an hour later, which makes the first
+    half end before it starts. Opta ships `timestamp_utc` alongside, so read
+    that whenever it is there and fall back to the London time only for feeds
+    that predate it.
+    """
+    if utc_dt_str:
+        return pytz.utc.localize(_parse_naive(utc_dt_str))
+    naive_datetime = _parse_naive(dt_str)
     timezone = pytz.timezone("Europe/London")
     aware_datetime = timezone.localize(naive_datetime)
     return aware_datetime.astimezone(pytz.utc)
@@ -37,7 +56,10 @@ class F24XMLParser(OptaXMLParser):
                 time_sec=int(event.attrib["sec"]),
                 x=float(event.attrib["x"]),
                 y=float(event.attrib["y"]),
-                timestamp=_parse_f24_datetime(event.attrib["timestamp"]),
+                timestamp=_parse_f24_datetime(
+                    event.attrib["timestamp"],
+                    event.attrib.get("timestamp_utc"),
+                ),
                 last_modified=_parse_f24_datetime(
                     event.attrib["last_modified"]
                 ),
@@ -59,6 +81,12 @@ class F24XMLParser(OptaXMLParser):
     def extract_date(self) -> Optional[datetime]:
         """Return the date of the game."""
         game_elm = self.root.find("Game")
+        if game_elm is not None and "game_date_utc" in game_elm.attrib:
+            return pytz.utc.localize(
+                datetime.strptime(
+                    game_elm.attrib["game_date_utc"], "%Y-%m-%dT%H:%M:%S"
+                )
+            )
         if game_elm is not None and "game_date" in game_elm.attrib:
             naive_datetime = datetime.strptime(
                 game_elm.attrib["game_date"], "%Y-%m-%dT%H:%M:%S"

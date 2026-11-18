@@ -86,6 +86,51 @@ def test_parse_f24_datetime():
     )
 
 
+def test_parse_f24_datetime_across_the_autumn_clock_change():
+    """London 01:00-01:59 happens twice on the night the clocks go back.
+
+    Angel City - Bay (2622256, 2026-10-25) kicked off at 00:48 UTC, which the
+    feed writes as 01:48 London (BST); an hour later 01:37 London is GMT. Read
+    as London time both land on GMT, so the first half ended before it began.
+    `timestamp_utc` is unambiguous and wins whenever the feed carries it.
+    """
+    assert _parse_f24_datetime(
+        "2026-10-25T01:48:29.063", "2026-10-25T00:48:29.063"
+    ) == datetime(2026, 10, 25, 0, 48, 29, 63000, tzinfo=timezone.utc)
+    assert _parse_f24_datetime(
+        "2026-10-25T01:37:39.387", "2026-10-25T01:37:39.387"
+    ) == datetime(2026, 10, 25, 1, 37, 39, 387000, tzinfo=timezone.utc)
+    # Feeds without timestamp_utc still read as London time.
+    assert _parse_f24_datetime("2026-10-25T03:00:00.000") == datetime(
+        2026, 10, 25, 3, 0, 0, tzinfo=timezone.utc
+    )
+
+
+def test_goal_shot_timestamp_in_the_repeated_hour():
+    """Qualifier 374 is London time with no UTC twin; in the hour the clocks
+    go back it is read as the candidate next to its own goal event."""
+    goal_time = datetime(2026, 10, 25, 0, 30, 10, tzinfo=timezone.utc)
+    goal = OptaEvent(
+        id="1",
+        event_id=1,
+        type_id=16,
+        period_id=1,
+        time_min=30,
+        time_sec=10,
+        x=100.0,
+        y=50.0,
+        timestamp=goal_time,
+        last_modified=goal_time,
+        qualifiers={374: "2026-10-25 01:30:09.400"},  # BST
+    )
+
+    _apply_goal_shot_timestamps([goal])
+
+    assert goal.timestamp == datetime(
+        2026, 10, 25, 0, 30, 9, 400000, tzinfo=timezone.utc
+    )
+
+
 class TestOptaMetadata:
     """Tests related to deserializing metadata (i.e., the F7 feed)"""
 
