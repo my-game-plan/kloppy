@@ -1583,6 +1583,13 @@ class TestSmrtStatsExtraTimeMatch:
         assert len(p3_events) > 0
         assert len(p4_events) > 0
 
+    def test_events_come_out_in_period_order(self, et_dataset):
+        """The marker lists are read ET-first, so without a re-sort the
+        second half came out after both extra-time periods, and everything
+        that walks the event list in order saw time run backwards."""
+        period_ids = [e.period.id for e in et_dataset.events]
+        assert period_ids == sorted(period_ids)
+
     def test_shootout_events_present(self, et_dataset):
         """SmrtStats does emit events during the shootout (contrary to
         the downstream DB's 'P5 has no events' claim). Kloppy lands them

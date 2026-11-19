@@ -1710,6 +1710,16 @@ class SmrtStatsDeserializer(EventDataDeserializer[SmrtStatsInputs]):
                     if self.should_include_event(event):
                         events.append(transformer.transform_event(event))
 
+        # The buckets above are read ET-first, so for an extra-time match the
+        # whole second half comes out after both extra-time periods. Put the
+        # periods back in order before anything walks the list: the dataset
+        # derives positions from substitutions in list order, and a sub at
+        # the start of extra time read before the second-half subs replaced
+        # a player with no position yet, leaving the replacement `Unknown`
+        # (Charleston Battery - Hartford Athletic, USL). The sort is stable,
+        # so the provider's order within a period is kept.
+        events.sort(key=lambda event: event.period.id)
+
         self.mark_events_as_assists(events)
 
         metadata = Metadata(
