@@ -849,8 +849,16 @@ def _apply_goal_shot_timestamps(raw_events: List[OptaEvent]) -> None:
                 raw_event.id,
             )
             continue
-        shot_timestamp = (
-            pytz.timezone("Europe/London").localize(naive).astimezone(pytz.utc)
+        # London local time with no UTC twin. In the hour the clocks go back
+        # it reads two ways; the shot is the one next to its own goal event,
+        # whose timestamp is already UTC.
+        london = pytz.timezone("Europe/London")
+        shot_timestamp = min(
+            (
+                london.localize(naive, is_dst=is_dst).astimezone(pytz.utc)
+                for is_dst in (True, False)
+            ),
+            key=lambda candidate: abs(candidate - raw_event.timestamp),
         )
         if (
             abs(shot_timestamp - raw_event.timestamp)
