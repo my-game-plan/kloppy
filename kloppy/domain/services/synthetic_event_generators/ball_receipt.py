@@ -121,6 +121,26 @@ class SyntheticBallReceiptGenerator(SyntheticEventGenerator):
                         **ball_receipt_event_args,
                         **generic_event_args,
                     )
-                    dataset.insert(new_ball_receipt, after_event_id=event.event_id)
+                    # The receipt belongs where its timestamp puts it, not
+                    # straight after its pass. Events the provider listed
+                    # between the pass and the next on-ball action (a duel
+                    # stamped at the moment of the pass, a pressure) can be
+                    # earlier than the arrival; putting the receipt ahead of
+                    # them sends the event list back in time, and everything
+                    # that walks it in order (phase of play, sequences) opens
+                    # the same stretch twice (FC Rupel Boom - KFC Nijlen,
+                    # SmrtStats, a receipt at 39:23.88 ahead of a duel at
+                    # 39:20.46). It never moves past the next on-ball event,
+                    # whose timestamp already caps it.
+                    insert_position = idx + 1
+                    while (
+                        insert_position < idx + idx_plus
+                        and dataset.events[insert_position].period
+                        == event.period
+                        and dataset.events[insert_position].timestamp
+                        <= receive_timestamp
+                    ):
+                        insert_position += 1
+                    dataset.insert(new_ball_receipt, position=insert_position)
 
         return dataset
