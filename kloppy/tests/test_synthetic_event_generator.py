@@ -129,6 +129,22 @@ class TestSyntheticEventGenerator:
             > 0.80
         )
 
+    def test_carry_runs_through_the_beaten_defenders_duel(self, base_dir):
+        """Opta logs the defender a take-on beats (challenge) as a lost duel
+        just before the take-on. He never had the ball, so the dribbler's
+        carry into the take-on must survive it (TAS-4286)."""
+        dataset = self._load_dataset_statsperform(base_dir)
+        dataset = dataset.add_synthetic_event(EventType.CARRY)
+        carry = dataset.get_event_by_id("carry-2328600271")
+        assert carry is not None
+
+        challenge = carry.prev_record
+        assert challenge.event_type == EventType.DUEL
+        assert challenge.team != carry.team
+        take_on = carry.next_record
+        assert take_on.event_type == EventType.TAKE_ON
+        assert take_on.player == carry.player
+
     def test_synthetic_carries_get_a_duration_where_the_feed_allows(
         self, base_dir
     ):
