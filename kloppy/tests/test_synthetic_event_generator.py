@@ -3,6 +3,7 @@ from datetime import timedelta
 import pytest
 
 from kloppy.domain import (
+    EventFactory,
     EventType,
     PassResult,
     Unit,
@@ -277,6 +278,59 @@ class TestSyntheticEventGenerator:
             receipt.event_id for receipt in receipts
         }
         assert all(receipt.coordinates is not None for receipt in receipts)
+
+
+    def test_ball_receipt_is_placed_by_its_timestamp(self, base_dir):
+        """A receipt goes where its timestamp puts it, not straight after its
+        pass. SmrtStats lists a duel stamped at the moment of the pass
+        between the pass and the next on-ball action; a receipt put ahead of
+        it sent the list back in time and phase of play opened the same
+        stretch twice (FC Rupel Boom - KFC Nijlen, 2026-11-01)."""
+        without_receipts = [
+            event.value for event in EventType if event.value != "BALL_RECEIPT"
+        ]
+        dataset = self._load_dataset_statsbomb(
+            base_dir, event_types=without_receipts
+        )
+        baseline = self._load_dataset_statsbomb(
+            base_dir, event_types=without_receipts
+        ).add_synthetic_event(EventType.BALL_RECEIPT)
+        later = {
+            receipt.event_id.removeprefix("ball_receipt-")
+            for receipt in baseline.find_all("ball_receipt")
+            if receipt.timestamp
+            > baseline.get_event_by_id(
+                receipt.event_id.removeprefix("ball_receipt-")
+            ).timestamp
+        }
+        the_pass = next(
+            event
+            for event in dataset.find_all("pass")
+            if event.event_id in later
+        )
+        # An off-ball event at the moment of the pass, listed right after it.
+        off_ball = EventFactory().build_generic(
+            event_id="off-ball",
+            period=the_pass.period,
+            timestamp=the_pass.timestamp,
+            team=the_pass.team,
+            player=None,
+            coordinates=the_pass.coordinates,
+            ball_owning_team=the_pass.ball_owning_team,
+            ball_state=the_pass.ball_state,
+            raw_event=None,
+            event_name="off_ball",
+            result=None,
+            qualifiers=None,
+        )
+        dataset.insert(off_ball, after_event_id=the_pass.event_id)
+
+        dataset = dataset.add_synthetic_event(EventType.BALL_RECEIPT)
+
+        ids = [event.event_id for event in dataset.events]
+        assert ids.index(f"ball_receipt-{the_pass.event_id}") > ids.index(
+            "off-ball"
+        )
 
 
 class TestOwnGoalForDomain:
