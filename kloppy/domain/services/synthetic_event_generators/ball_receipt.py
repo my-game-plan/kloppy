@@ -97,7 +97,8 @@ class SyntheticBallReceiptGenerator(SyntheticEventGenerator):
                         )
                         if next_event.period == event.period:
                             receive_timestamp = min(
-                                estimated_receive_timestamp, next_event.timestamp
+                                estimated_receive_timestamp,
+                                next_event.timestamp,
                             )
                         else:
                             receive_timestamp = estimated_receive_timestamp
@@ -121,6 +122,25 @@ class SyntheticBallReceiptGenerator(SyntheticEventGenerator):
                         **ball_receipt_event_args,
                         **generic_event_args,
                     )
-                    dataset.insert(new_ball_receipt, after_event_id=event.event_id)
+                    # The receipt is capped at the next on-ball event, but the
+                    # events in between (duels, fouls the loop above walks past)
+                    # can lie before it in time. Directly after the pass it
+                    # would precede them and break chronological order, which
+                    # every state builder downstream walks (a phase of play
+                    # opened twice: SmrtStats 767117, FC Rupel Boom - KFC
+                    # Nijlen). Place it after the last of them it does not
+                    # precede.
+                    anchor = event
+                    for between in dataset.events[
+                        idx + 1 : min(idx + idx_plus, len(dataset.events))
+                    ]:
+                        if (
+                            between.period == event.period
+                            and between.timestamp <= receive_timestamp
+                        ):
+                            anchor = between
+                    dataset.insert(
+                        new_ball_receipt, after_event_id=anchor.event_id
+                    )
 
         return dataset
