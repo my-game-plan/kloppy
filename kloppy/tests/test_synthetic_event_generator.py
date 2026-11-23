@@ -4,6 +4,7 @@ import pytest
 
 from kloppy.domain import (
     EventType,
+    PassEvent,
     PassResult,
     Unit,
 )
@@ -278,6 +279,42 @@ class TestSyntheticEventGenerator:
         }
         assert all(receipt.coordinates is not None for receipt in receipts)
 
+    def test_ball_receipt_does_not_precede_earlier_events(self, base_dir):
+        # SmrtStats 767117 (FC Rupel Boom - KFC Nijlen): a pass at 2360.46,
+        # then a duel at 2360.46, then the next pass at 2363.88. The receipt
+        # is timed at 2363.88 and must land after the duel, not before it.
+        from kloppy.domain.services.synthetic_event_generators.ball_receipt import (
+            POSSESSING_ON_BALL,
+        )
+
+        dataset = self._load_dataset_statsbomb(base_dir)
+        events = dataset.events
+        candidates = [
+            (event, events[i + 1])
+            for i, event in enumerate(events[:-2])
+            if isinstance(event, PassEvent)
+            and event.result == PassResult.COMPLETE
+            and event.receiver_coordinates is not None
+            and not isinstance(events[i + 1], POSSESSING_ON_BALL)
+            and events[i + 1].period == event.period
+            and isinstance(events[i + 2], POSSESSING_ON_BALL)
+            and events[i + 2].timestamp > event.timestamp
+        ]
+        assert (
+            candidates
+        ), "fixture must hold a pass followed by an off-ball event"
+        pass_event, between = candidates[0]
+        pass_event.receive_timestamp = None  # SmrtStats ships none
+        between.timestamp = pass_event.timestamp
+
+        dataset = dataset.add_synthetic_event(EventType.BALL_RECEIPT)
+
+        ids = [event.event_id for event in dataset.events]
+        receipt_idx = ids.index(f"ball_receipt-{pass_event.event_id}")
+        receipt = dataset.events[receipt_idx]
+        assert receipt.timestamp >= between.timestamp
+        assert receipt_idx > ids.index(between.event_id)
+
 
 class TestOwnGoalForDomain:
     """Domain-level tests for the new GoalQualifier and OwnGoalForEvent."""
@@ -330,6 +367,7 @@ class TestGoalQualifierAttachment:
 
     def _load_dataset_statsbomb(self, base_dir, base_filename="statsbomb"):
         from kloppy import statsbomb
+
         return statsbomb.load(
             event_data=base_dir / f"files/{base_filename}_event.json",
             lineup_data=base_dir / f"files/{base_filename}_lineup.json",
@@ -344,9 +382,9 @@ class TestGoalQualifierAttachment:
             for e in dataset.events
             if isinstance(e, ShotEvent) and e.result == ShotResult.GOAL
         ]
-        assert len(goal_shots) > 0, (
-            "fixture must contain at least one GOAL shot for this test"
-        )
+        assert (
+            len(goal_shots) > 0
+        ), "fixture must contain at least one GOAL shot for this test"
         for shot in goal_shots:
             assert shot.qualifiers is not None
             assert any(
@@ -362,9 +400,9 @@ class TestGoalQualifierAttachment:
             for e in dataset.events
             if isinstance(e, ShotEvent) and e.result == ShotResult.OWN_GOAL
         ]
-        assert len(own_goal_shots) > 0, (
-            "fixture must contain at least one OWN_GOAL shot for this test"
-        )
+        assert (
+            len(own_goal_shots) > 0
+        ), "fixture must contain at least one OWN_GOAL shot for this test"
         for shot in own_goal_shots:
             qualifiers = shot.qualifiers or []
             assert not any(
@@ -386,11 +424,13 @@ class TestGoalQualifierAttachment:
         ]
         for shot in goal_shots:
             count = sum(
-                1 for q in (shot.qualifiers or []) if isinstance(q, GoalQualifier)
+                1
+                for q in (shot.qualifiers or [])
+                if isinstance(q, GoalQualifier)
             )
-            assert count == 1, (
-                f"GOAL shot {shot.event_id} has {count} GoalQualifiers, expected 1"
-            )
+            assert (
+                count == 1
+            ), f"GOAL shot {shot.event_id} has {count} GoalQualifiers, expected 1"
 
 
 class TestSyntheticOwnGoalForGenerator:
@@ -398,6 +438,7 @@ class TestSyntheticOwnGoalForGenerator:
 
     def _load_dataset_statsbomb(self, base_dir, base_filename="statsbomb"):
         from kloppy import statsbomb
+
         return statsbomb.load(
             event_data=base_dir / f"files/{base_filename}_event.json",
             lineup_data=base_dir / f"files/{base_filename}_lineup.json",
@@ -412,13 +453,15 @@ class TestSyntheticOwnGoalForGenerator:
         dataset = statsbomb.load(
             event_data=base_dir / "files/statsbomb_event.json",
             lineup_data=base_dir / "files/statsbomb_lineup.json",
-            event_types=[
-                e.value for e in EventType if e != EventType.SHOT
-            ],
+            event_types=[e.value for e in EventType if e != EventType.SHOT],
         )
-        before = len([e for e in dataset.events if isinstance(e, OwnGoalForEvent)])
+        before = len(
+            [e for e in dataset.events if isinstance(e, OwnGoalForEvent)]
+        )
         dataset = dataset.add_synthetic_event(EventType.OWN_GOAL_FOR)
-        after = len([e for e in dataset.events if isinstance(e, OwnGoalForEvent)])
+        after = len(
+            [e for e in dataset.events if isinstance(e, OwnGoalForEvent)]
+        )
         assert before == 0
         assert after == 0
 
@@ -449,7 +492,8 @@ class TestSyntheticOwnGoalForGenerator:
         # Pick the first own goal and verify the corresponding synthetic event.
         source = own_goal_shots[0]
         synthetic = next(
-            e for e in synthetic_events
+            e
+            for e in synthetic_events
             if e.event_id == f"own_goal_for-{source.event_id}"
         )
 
@@ -477,9 +521,7 @@ class TestSyntheticOwnGoalForGenerator:
 
         # GoalQualifier is present.
         assert synthetic.qualifiers is not None
-        assert any(
-            isinstance(q, GoalQualifier) for q in synthetic.qualifiers
-        )
+        assert any(isinstance(q, GoalQualifier) for q in synthetic.qualifiers)
 
         # Linked to source via related_event_ids.
         assert synthetic.related_event_ids == [source.event_id]
@@ -490,16 +532,20 @@ class TestSyntheticOwnGoalForGenerator:
         dataset = self._load_dataset_statsbomb(base_dir)
         dataset = dataset.add_synthetic_event(EventType.OWN_GOAL_FOR)
         first_run_ids = sorted(
-            e.event_id for e in dataset.events
+            e.event_id
+            for e in dataset.events
             if isinstance(e, OwnGoalForEvent)
         )
 
         # Second run on the same dataset.
         dataset = dataset.add_synthetic_event(EventType.OWN_GOAL_FOR)
         second_run_ids = sorted(
-            e.event_id for e in dataset.events
+            e.event_id
+            for e in dataset.events
             if isinstance(e, OwnGoalForEvent)
         )
 
         assert first_run_ids == second_run_ids
-        assert len(first_run_ids) >= 1, "fixture must have at least one own goal"
+        assert (
+            len(first_run_ids) >= 1
+        ), "fixture must have at least one own goal"
