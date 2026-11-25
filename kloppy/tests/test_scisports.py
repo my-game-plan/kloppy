@@ -960,3 +960,48 @@ def test_center_backs_keep_their_side():
     assert SS.get_position_type(3) == PositionType.LeftCenterBack
     assert SS.get_position_type(4) == PositionType.CenterBack
     assert SS.get_position_type(5) == PositionType.RightCenterBack
+
+
+class TestSciSportsMissingPeriodEnd:
+    """An export can lack the END_PERIOD of a half: RSC Anderlecht U16 - KAA
+    Gent U16 (2026-11-21) has one for the first half only. Requiring the marker
+    dropped the whole second half; the half has to survive, closed at its last
+    play event.
+    """
+
+    @pytest.fixture(scope="class")
+    def full(self) -> EventDataset:
+        return scisports.load_event(
+            event_data=Path(__file__).parent
+            / "files"
+            / "scisports_events.json",
+            coordinates="opta",
+        )
+
+    @pytest.fixture(scope="class")
+    def dataset(self, tmp_path_factory) -> EventDataset:
+        import json
+
+        source = Path(__file__).parent / "files" / "scisports_events.json"
+        raw = json.loads(source.read_text())
+        raw["data"] = [
+            row
+            for row in raw["data"]
+            if not (row["subTypeName"] == "END_PERIOD" and row["partId"] == 2)
+        ]
+        path = tmp_path_factory.mktemp("scisports") / "no_second_end.json"
+        path.write_text(json.dumps(raw))
+        return scisports.load_event(event_data=path, coordinates="opta")
+
+    def test_the_second_half_is_kept(self, dataset):
+        assert [p.id for p in dataset.metadata.periods] == [1, 2]
+
+    def test_it_ends_at_its_last_play_event(self, dataset):
+        second = dataset.metadata.periods[1]
+        assert second.end_timestamp == timedelta(seconds=5032.12)
+
+    def test_no_second_half_event_is_lost(self, dataset, full):
+        def second_half(ds):
+            return sum(1 for e in ds.events if e.period.id == 2)
+
+        assert second_half(dataset) == second_half(full)

@@ -363,33 +363,53 @@ class SciSportsDeserializer(EventDataDeserializer[SciSportsInputs]):
                 continue
 
             if part_id:
+                last_time_ms = max(
+                    start_time_ms, event.get("endTimeMs") or start_time_ms
+                )
                 if part_id not in period_data:
                     period_data[part_id] = {
                         "id": part_id,
                         "name": part_name,
                         "start_time_ms": start_time_ms,
+                        "last_time_ms": last_time_ms,
                     }
                 else:
                     # Find the earliest non-period event time as period start
                     period_data[part_id]["start_time_ms"] = min(
                         period_data[part_id]["start_time_ms"], start_time_ms
                     )
+                    period_data[part_id]["last_time_ms"] = max(
+                        period_data[part_id]["last_time_ms"], last_time_ms
+                    )
 
         # Create periods sorted by ID with correct timestamps
         for part_id in sorted(period_data.keys()):
-            if part_id in period_data and part_id in period_end_times:
-                period_info = period_data[part_id]
+            period_info = period_data[part_id]
 
-                # Convert milliseconds to seconds for timedelta
-                start_seconds = period_info["start_time_ms"] / 1000.0
-                end_seconds = period_end_times[part_id] / 1000.0
-
-                period = Period(
-                    id=part_id,
-                    start_timestamp=timedelta(seconds=start_seconds),
-                    end_timestamp=timedelta(seconds=end_seconds),
+            # A part with play in it is a period, whether or not SciSports
+            # closed it. Exports do turn up without the END_PERIOD of one half
+            # (RSC Anderlecht U16 - KAA Gent U16, 2026-11-21, has none for the
+            # second), and requiring the marker dropped that whole half: its
+            # events found no period and were skipped one by one. Close it at
+            # its last play event instead, and say so.
+            if part_id in period_end_times:
+                end_time_ms = period_end_times[part_id]
+            else:
+                end_time_ms = period_info["last_time_ms"]
+                logger.warning(
+                    f"SciSports period {part_id} has no END_PERIOD; "
+                    f"ending it at its last event ({end_time_ms / 1000.0}s)"
                 )
-                periods.append(period)
+
+            periods.append(
+                Period(
+                    id=part_id,
+                    start_timestamp=timedelta(
+                        seconds=period_info["start_time_ms"] / 1000.0
+                    ),
+                    end_timestamp=timedelta(seconds=end_time_ms / 1000.0),
+                )
+            )
 
         return periods
 
