@@ -1,15 +1,16 @@
 # The MGP fork's CI. test.yml is upstream's and only runs on master, so
-# without this nothing tested mgp-fork/* and red tests went unnoticed.
+# without this nothing tested the fork and red tests went unnoticed. `mgp` is
+# the fork's trunk (renamed from mgp-fork/v11 on 2026-11-25).
 # Python 3.11 because that is what pipelines/ runs this fork on.
 name: MGP fork tests
 
 on:
   push:
     branches:
-    - 'mgp-fork/**'
+    - mgp
   pull_request:
     branches:
-    - 'mgp-fork/**'
+    - mgp
 
 jobs:
   pytest:
