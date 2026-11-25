@@ -107,7 +107,7 @@ assumption that is true, or that costs nothing if false, does not earn a line. W
 
 ## What you are given
 
-- The PR diff and the repository at the PR head. The base is `mgp-fork/v11`, MyGamePlan's
+- The PR diff and the repository at the PR head. The base is `mgp`, MyGamePlan's
   trunk of this fork, not upstream's `master`.
 - The PR body, written by the author. **Problem**, **Fix** and **Change summary** are claims,
   not facts. You are not asked to table them one by one — but a **Problem** the diff does not
@@ -127,7 +127,7 @@ assumption that is true, or that costs nothing if false, does not earn a line. W
 Each of these turns a reasonable-sounding claim into a false one, silently.
 
 - **"Merged, so it is live."** `pipelines/` in `mgp-workspace` installs this fork from
-  `uv.lock`, which pins a **commit** of `mgp-fork/v11`. A merge here changes nothing in
+  `uv.lock`, which pins a **commit** of `mgp`. A merge here changes nothing in
   production until a separate `mgp-workspace` PR bumps the lock
   (`uv lock --upgrade-package kloppy`). A fix whose body says it is urgent should name that
   follow-up; a change that must ship together with a pipelines change has to name the order.

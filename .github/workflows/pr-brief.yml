@@ -18,11 +18,12 @@ name: PR brief
 # DEFAULT BRANCH. The action exchanges its OIDC token only when this file exists,
 # unchanged, on the repo's DEFAULT branch ("workflow_not_found_on_default_branch"),
 # and a `/review` comment runs the default branch's copy of this file. So the fork's
-# default branch must be `mgp-fork/v11`, where this file lives, not upstream's
+# default branch must be `mgp`, where this file lives, not upstream's
 # `master`. A PR that edits this file gets no review until it is merged.
 #
-# Needs the CLAUDE_CODE_OAUTH_TOKEN secret on this repo, the Claude GitHub App (an
-# org-wide install), and the three `claude: …` labels.
+# Needs CLAUDE_CODE_OAUTH_TOKEN (an org secret shared with mgp-workspace, sourced
+# from AWS Secrets Manager `github/claude-code-oauth-token`), the Claude GitHub App
+# (an org-wide install), and the three `claude: …` labels.
 #
 # NO `--model` PIN: one broke the review outright in mgp-workspace while the check
 # stayed green.
@@ -111,7 +112,7 @@ jobs:
           # CLAUDE.md from the base, and nothing restores .github/pr-brief-review.md.
           if gh pr diff "$PR" --name-only > /tmp/changed.txt 2>/dev/null \
              && grep -qx '.github/pr-brief-review.md' /tmp/changed.txt; then
-            echo "warning=WARNING: this PR edits .github/pr-brief-review.md, the contract you were just told to follow, so you read its PR version. Review against the base copy (git show origin/mgp-fork/v11:.github/pr-brief-review.md) and say in the review that the contract changed." >> "$GITHUB_OUTPUT"
+            echo "warning=WARNING: this PR edits .github/pr-brief-review.md, the contract you were just told to follow, so you read its PR version. Review against the base copy (git show origin/mgp:.github/pr-brief-review.md) and say in the review that the contract changed." >> "$GITHUB_OUTPUT"
           else
             echo "warning=" >> "$GITHUB_OUTPUT"
           fi
