@@ -1,0 +1,461 @@
+name: PR brief
+
+# Port of my-game-plan/mgp-workspace's .github/workflows/pr-brief.yml, so a PR on
+# this fork gets the same review as a platform PR: `/code-review low` for bugs,
+# plus the three questions it cannot answer (simpler approach, duplication,
+# unstated assumptions), posted as one comment and mirrored as a PR review and a
+# `claude: …` label. The reasoning behind every guard below lives in that file's
+# comments, with the runs that justified them; this copy keeps the short version.
+#
+# Two ways in:
+#   - automatic, when a PR is opened / reopened / marked ready for review
+#   - a `/review` comment on the PR, to re-run after pushing fixes
+# Not on `synchronize` (spend), and no workflow_dispatch (the action rejects
+# track_progress for that event).
+#
+# The review instructions live in .github/pr-brief-review.md.
+#
+# DEFAULT BRANCH. The action exchanges its OIDC token only when this file exists,
+# unchanged, on the repo's DEFAULT branch ("workflow_not_found_on_default_branch"),
+# and a `/review` comment runs the default branch's copy of this file. So the fork's
+# default branch must be `mgp`, where this file lives, not upstream's
+# `master`. A PR that edits this file gets no review until it is merged.
+#
+# Needs CLAUDE_CODE_OAUTH_TOKEN (an org secret shared with mgp-workspace, sourced
+# from AWS Secrets Manager `github/claude-code-oauth-token`), the Claude GitHub App
+# (an org-wide install), and the three `claude: …` labels.
+#
+# NO `--model` PIN: one broke the review outright in mgp-workspace while the check
+# stayed green.
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+
+jobs:
+  brief:
+    # For a comment: only on a PR, only the `/review` command, and only from
+    # someone with write access — a comment body is untrusted input.
+    if: |
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+       startsWith(github.event.comment.body, '/review') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - name: Resolve the PR number
+        id: pr
+        # Every value reaches the script through env:, never through `${{ }}`
+        # interpolated into the shell. `github` context data is attacker-
+        # controllable (a comment body, a branch name), and interpolation splices
+        # it into the script text before bash ever sees it. The numeric guard is
+        # the real fix rather than the lint fix: it is what makes the later
+        # `steps.pr.outputs.number` uses provably safe.
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_FROM_EVENT: ${{ github.event.pull_request.number }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          case "$EVENT" in
+            pull_request)  N="$PR_FROM_EVENT" ;;
+            issue_comment) N="$ISSUE_NUMBER" ;;
+            *) echo "Unsupported event: $EVENT" >&2; exit 1 ;;
+          esac
+          case "$N" in
+            ''|*[!0-9]*) echo "Refusing to continue: '$N' is not a PR number" >&2; exit 1 ;;
+          esac
+          echo "number=$N" >> "$GITHUB_OUTPUT"
+          echo "Reviewing PR #$N (trigger: $EVENT)"
+
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # Full history, so the reviewer can `git log` / `git show` the base.
+          fetch-depth: 0
+
+      - name: Check out the PR head
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: gh pr checkout "$PR"
+
+      - name: Decide whether this diff is worth a review
+        id: scope
+        # A prose-only PR gets no review: it spends the same Claude session budget
+        # our interactive sessions draw on. Prose is an ALLOWLIST (a file under a
+        # `docs/` directory, or a `README.md`), never "ends in .md": CLAUDE.md and
+        # anything under .claude/ or .github/ steer an agent or CI and are reviewed.
+        # A `/review` comment always reviews.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          # Every path out of here writes prose_only, and every uncertain one writes
+          # `false`: not knowing what changed is a reason to review, never a reason
+          # to skip. The default shell is `bash -e`, so each command that may fail
+          # is tested inline rather than guarded on the next line.
+          decide() {
+            echo "prose_only=$1" >> "$GITHUB_OUTPUT"
+            echo "prose_only=$1 ($2)"
+          }
+          # A PR may edit the contract it is judged under (that is how the contract
+          # gets tuned), but never invisibly: the action restores .claude/ and
+          # CLAUDE.md from the base, and nothing restores .github/pr-brief-review.md.
+          if gh pr diff "$PR" --name-only > /tmp/changed.txt 2>/dev/null \
+             && grep -qx '.github/pr-brief-review.md' /tmp/changed.txt; then
+            echo "warning=WARNING: this PR edits .github/pr-brief-review.md, the contract you were just told to follow, so you read its PR version. Review against the base copy (git show origin/mgp:.github/pr-brief-review.md) and say in the review that the contract changed." >> "$GITHUB_OUTPUT"
+          else
+            echo "warning=" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$EVENT" != pull_request ]]; then
+            decide false "explicit /review comment"
+            exit 0
+          fi
+          if [[ ! -s /tmp/changed.txt ]]; then
+            echo "::warning::Could not list the changed files for PR #$PR; reviewing anyway."
+            decide false "changed-file list unavailable"
+            exit 0
+          fi
+          VERDICT=true
+          REASON="every changed file is prose"
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            case "$f" in
+              # Steers an agent or CI whatever its extension. First, because
+              # otherwise .claude/skills/README.md takes the README arm.
+              .claude/*|.github/*)
+                VERDICT=false; REASON="changes $f, which steers an agent or CI"; break ;;
+              # The only two prose shapes. Anything not matched here is reviewed.
+              docs/*.md|*/docs/*.md) ;;
+              README.md|*/README.md) ;;
+              *)
+                VERDICT=false; REASON="changes $f"; break ;;
+            esac
+          done < /tmp/changed.txt
+          decide "$VERDICT" "$REASON"
+          if [[ "$VERDICT" == true ]]; then
+            {
+              echo "## Review skipped"
+              echo "Prose-only PR — $(wc -l < /tmp/changed.txt) changed file(s), each under a"
+              echo "\`docs/\` directory or a \`README.md\`."
+              echo "Comment \`/review\` to review it anyway."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Review
+        if: steps.scope.outputs.prose_only != 'true'
+        uses: anthropics/claude-code-action@f87768c6d25f92ae6efa7175e223ef77d4cbf97f # v1
+        env:
+          # `/code-review` runs as a background subagent by default, and a session
+          # has ended reporting success at 29 turns with its tracking comment still
+          # reading "finder agents in progress" — no review, $2.06 spent (run
+          # 34954932661). This forces background tasks into the foreground so the
+          # session has to wait for the review it was told to relay.
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
+          # No show_full_output. It was on for one round to read a hidden error and
+          # is off again now: a healthy review is ~40 turns, and that flag puts
+          # every tool result from all of them into an Actions log any org member
+          # can read. The guard below surfaces the error text instead, which is
+          # what the flag was actually needed for.
+          additional_permissions: |
+            actions: read
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ steps.pr.outputs.number }}
+
+            Read `.github/pr-brief-review.md` and follow it exactly: the repo-specific
+            traps, the required output format and the verdict line.
+
+            The review is TWO passes, in this order, and the second is not a footnote to
+            the first.
+
+            PASS 1 — bugs. Run `/code-review low` on the PR's diff. The level is `low` on
+            purpose: fewer, higher-confidence findings. Relay them; do not add findings of
+            your own to this pass, do not second-guess its verification, and do not
+            compensate for the level by hunting bugs yourself — that puts back exactly the
+            noise the level was lowered to remove.
+
+            PASS 2 — the three questions pass 1 cannot answer, because its Phase 0 gathers
+            the diff and nothing else: it never learns what the change is FOR, and it never
+            sees the rest of the repo. With the PR body open (`gh pr view`), answer in this
+            order, each capped as the contract specifies:
+              1. Is there a SIMPLER APPROACH that reaches the Problem the body states?
+                 Read `Rejected alternatives` first and test its reasoning. One at most.
+              2. Does this DUPLICATE code that already exists in the repo? Grep before
+                 claiming it; cite both locations. Two or more call sites, or a
+                 reimplementation — but never an abstraction around a single call
+                 site, and never two blocks that merely look alike. Two at most.
+              3. What does the change RELY ON that the body never states? Only assumptions
+                 whose being wrong would change whether this merges. Two at most.
+            Say nothing about the body's `Merge risk`; it is the author's call. Do not let
+            pass 1's output become the review and this an afterthought appended to it.
+
+            Post ONE top-level comment carrying both, in the order and shape the contract
+            defines, with each section attributed to the pass that produced it. Keep the
+            `### Correctness` heading even when pass 1 found nothing: CI reads it to tell a
+            posted review from a session that ended without one, and fails the job without it.
+
+            ${{ steps.scope.outputs.warning }}
+          # A CI session must not inherit our interactive Claude config. The action
+          # restores .claude/ and .mcp.json from the base and sets
+          # enableAllProjectMcpServers, so without these two flags the session
+          # fires three SessionStart hooks (one of them a git pull, one wanting AWS
+          # credentials) and tries to start nine MCP servers, five of which need
+          # secrets the runner does not have. That is the shape of the failure this
+          # replaces: dead on turn 1 in ~2s, is_error, no review.
+          #   --strict-mcp-config  ignore .mcp.json; keep only the action's own
+          #                        github_comment / github_ci / github_inline_comment
+          #   --setting-sources    drop "project", so .claude/settings.json hooks
+          #                        and permissions stay out of the runner
+          claude_args: |
+            --strict-mcp-config
+            --setting-sources user,local
+            --allowedTools "Skill,Task,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(rg:*),Bash(cat:*),Read,Grep,Glob"
+
+      - name: Fail if no review was posted
+        # THE OUTCOME CHECK. The session-health check below is necessary and was not
+        # sufficient: a session has ended at 29 turns with is_error false, every
+        # health condition satisfied, and no review on the PR at all. That check asks
+        # "did the session survive" and was read as "was there a review" — the same
+        # question only until a session ends politely with the work unfinished.
+        #
+        # NO HTML-COMMENT MARKER. This asked the reviewer to end its comment with
+        # `<!-- engine: pr-brief run: <id> -->` and then grepped for it, and the
+        # reviewer could never comply: with `track_progress` the review is written
+        # through the action's `update_claude_comment` tool, whose server runs
+        # `sanitizeContent` on every body, and its first step is
+        # `stripHtmlComments` — `/<!--[\s\S]*?-->/g`, unconditional
+        # (claude-code-action @f87768c, src/github/utils/sanitizer.ts). So the guard
+        # reported "nothing was reviewed" on both PRs since the reactivation (526,
+        # 527 in mgp-workspace) while a full green review sat on each, and a red
+        # check that is always red gets merged past.
+        #
+        # WHAT IDENTIFIES THE COMMENT INSTEAD: the action's own finalize step writes
+        # `[View job](<server>/<repo>/actions/runs/$GITHUB_RUN_ID)` into the comment
+        # it owns (src/entrypoints/update-comment-link.ts), on success and on
+        # failure alike. That is run-scoped and outside the session's reach, so it
+        # pins the comment to THIS run — two overlapping runs cannot satisfy each
+        # other — and it needs no timestamp floor, which is why there is no longer a
+        # step recording one.
+        #
+        # WHAT PROVES IT IS A REVIEW: that link is present on a crashed run too, so
+        # the body must also carry `### Correctness`, the one section
+        # `.github/pr-brief-review.md` makes mandatory under every verdict, `none`
+        # included. A session that ended early leaves the tracking comment's
+        # checklist and no such heading. Rename that heading there and this goes red
+        # on a real review — which is why the contract says the string is load-
+        # bearing, and why the review prompt above repeats it.
+        #
+        # `.user.type == "Bot"` because both of those strings are quotable: a human
+        # discussing the review format would otherwise count as one, which is the
+        # failure the old marker's run id was guarding against.
+        #
+        # `always()` so a crashed Review step is still caught, but never on a
+        # prose-only run: there the absence of a review is the intended outcome.
+        if: always() && steps.scope.outputs.prose_only != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+          JOB_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          SECTION: "### Correctness"
+        run: |
+          # Not `gh api ... | jq`: under pipefail a failing gh takes the pipeline down
+          # with jq's status, and "the API call failed" would be indistinguishable
+          # from "no review was posted".
+          if ! gh api "repos/$REPO/issues/$PR/comments" --paginate > /tmp/comments.json; then
+            echo "::error::Could not list comments on PR #$PR; cannot confirm a review was posted." >&2
+            exit 1
+          fi
+          # `jq -s` and `.[][]`, not `.[]`: --paginate emits one JSON array PER PAGE,
+          # concatenated. Without slurping, jq prints one count per page and
+          # `[[ "$COUNT" -lt 1 ]]` on a two-line value is a shell error, not a verdict.
+          COUNT=$(jq -s --arg url "$JOB_URL" --arg s "$SECTION" \
+            '[.[][] | select(.user.type == "Bot"
+                             and (.body | contains($url))
+                             and (.body | contains($s)))] | length' \
+            /tmp/comments.json)
+          if [[ "$COUNT" -lt 1 ]]; then
+            echo "::error::No review comment on PR #$PR for this run. The session may have" >&2
+            echo "::error::ended with the review unfinished — check whether the comment linking" >&2
+            echo "::error::$JOB_URL still shows unticked steps, or is missing" >&2
+            echo "::error::altogether. Nothing was reviewed." >&2
+            exit 1
+          fi
+          echo "Review posted: $COUNT comment(s) for this run carrying '$SECTION'."
+
+      - name: Mirror the verdict as a PR review
+        # The review is a comment, so it never reached the PR's Approvals box and
+        # the verdict had to be read out of the conversation. This submits it as a
+        # formal review on the commit that was reviewed: 🟢 approves, 🔴 requests
+        # changes, and 🟡 is a neutral review. GitHub has no yellow, and an approval
+        # for a PR with open questions read as green from the PR list. A re-run's
+        # review supersedes the previous one from the same reviewer, so the box
+        # always shows the latest verdict. A push after the review leaves it on the
+        # older commit, which GitHub shows as such; `/review` refreshes it.
+        #
+        # The colour lives in a label instead, the one place GitHub draws any colour
+        # and shows it under the title in the PR list: one `claude: …` label per
+        # verdict, the previous one swapped out. The labels exist in the repo; a
+        # missing one only warns.
+        #
+        # A 🟡 also opens one file-level review thread carrying the verdict line, on
+        # the PR's first changed file. A neutral review shows nowhere in the merge
+        # box; an unresolved conversation shows under Comments, and resolving it is
+        # what "the author decided" means. Every run first resolves the threads an
+        # earlier run opened (found by the marker below), so a 🟢 after a 🟡 clears
+        # the box and a second 🟡 replaces the first rather than stacking.
+        #
+        # Reads the comment the outcome guard above already pinned to this run, so
+        # it only runs once that guard passed. Approving needs the repo setting
+        # "Allow GitHub Actions to create and approve pull requests"; without it the
+        # API answers 422 and this falls back to a neutral review carrying the same
+        # verdict line, with a warning, rather than turning a good review red.
+        if: success() && steps.scope.outputs.prose_only != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+          JOB_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          SECTION: "### Correctness"
+        run: |
+          # Same selection as the outcome guard; `last` is this run's review.
+          jq -s --arg url "$JOB_URL" --arg s "$SECTION" \
+            '[.[][] | select(.user.type == "Bot"
+                             and (.body | contains($url))
+                             and (.body | contains($s)))] | last' \
+            /tmp/comments.json > /tmp/review.json
+          COMMENT_URL=$(jq -r '.html_url' /tmp/review.json)
+          VERDICT=$(jq -r '.body' /tmp/review.json | grep -m1 -E '^(🟢|🟡|🔴)' || true)
+          case "$VERDICT" in
+            🟢*) EVENT=APPROVE;         LABEL="claude: ready" ;;
+            🟡*) EVENT=COMMENT;         LABEL="claude: open question" ;;
+            🔴*) EVENT=REQUEST_CHANGES; LABEL="claude: changes" ;;
+            *)   EVENT=COMMENT;         LABEL=""; VERDICT="No verdict line found in the review." ;;
+          esac
+          SHA=$(git rev-parse HEAD)
+          BODY=$(printf '%s\n\nFull review: %s' "$VERDICT" "$COMMENT_URL")
+          post() {
+            gh api "repos/$REPO/pulls/$PR/reviews" -X POST \
+              -f event="$1" -f commit_id="$SHA" -f body="$BODY" > /dev/null
+          }
+          if post "$EVENT"; then
+            echo "Submitted $EVENT on $SHA: $VERDICT"
+          elif [[ "$EVENT" != COMMENT ]] && post COMMENT; then
+            echo "::warning::Could not submit $EVENT (is 'Allow GitHub Actions to create and approve pull requests' off?). Posted the verdict as a neutral review instead."
+          else
+            echo "::warning::Could not submit the verdict as a PR review; the review comment stands."
+          fi
+          # REST, not `gh pr edit`: that one goes through GraphQL and trips over
+          # the Projects (classic) deprecation on some gh versions.
+          for OLD in "claude: ready" "claude: open question" "claude: changes"; do
+            [[ "$OLD" == "$LABEL" ]] && continue
+            gh api -X DELETE "repos/$REPO/issues/$PR/labels/$(jq -rn --arg l "$OLD" '$l|@uri')" \
+              > /dev/null 2>&1 || true
+          done
+          if [[ -n "$LABEL" ]] && ! gh api "repos/$REPO/issues/$PR/labels" -X POST \
+              -f "labels[]=$LABEL" > /dev/null; then
+            echo "::warning::Could not add the label '$LABEL'."
+          fi
+
+          # The open-question thread. The marker is an HTML comment: this step
+          # posts the body itself, so nothing strips it, and it is what tells our
+          # threads apart from a person's.
+          MARKER='<!-- pr-brief-open-question -->'
+          OWNER=${REPO%/*}; NAME=${REPO#*/}
+          if gh api graphql -f owner="$OWNER" -f name="$NAME" -F pr="$PR" -f query='
+              query($owner: String!, $name: String!, $pr: Int!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $pr) {
+                    reviewThreads(first: 100) {
+                      nodes { id isResolved comments(first: 1) { nodes { body } } }
+                    }
+                  }
+                }
+              }' > /tmp/threads.json; then
+            jq -r --arg m "$MARKER" '.data.repository.pullRequest.reviewThreads.nodes[]
+                | select((.isResolved | not) and (.comments.nodes[0].body // "" | contains($m)))
+                | .id' /tmp/threads.json \
+            | while read -r TID; do
+                gh api graphql -f id="$TID" -f query='
+                  mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id } } }' \
+                  > /dev/null || echo "::warning::Could not resolve the earlier open-question thread $TID."
+              done || true
+          else
+            echo "::warning::Could not list the review threads; an earlier open-question thread may stay open."
+          fi
+          if [[ "$VERDICT" == 🟡* ]]; then
+            # A removed file still takes a file-level comment, but a surviving one
+            # is where the author is looking.
+            FILE=$(gh api "repos/$REPO/pulls/$PR/files" \
+                     --jq '(map(select(.status != "removed")) + .)[0].filename // empty' || true)
+            THREAD=$(printf '%s\n\n%s\n\nFull review: %s\n\nResolve this conversation once the open questions are decided.' \
+                       "$MARKER" "$VERDICT" "$COMMENT_URL")
+            if [[ -n "$FILE" ]] && gh api "repos/$REPO/pulls/$PR/comments" -X POST \
+                -f commit_id="$SHA" -f path="$FILE" -f subject_type=file \
+                -f body="$THREAD" > /dev/null; then
+              echo "Opened the open-question thread on $FILE."
+            else
+              echo "::warning::Could not open the open-question thread; the review and label stand."
+            fi
+          fi
+
+      - name: Fail if the review session did not run
+        # Necessary, not sufficient — see above. Kept because it names the cause when
+        # there is one: the action reports success when the session errors, so without
+        # this a dead session leaves a green check and a PR carrying only "I'll analyze
+        # this and get back to you". Read the flags only — the file holds the whole
+        # session, so it must never be echoed into a public Actions log.
+        if: always() && steps.scope.outputs.prose_only != 'true'
+        env:
+          LOG: /home/runner/work/_temp/claude-execution-output.json
+        run: |
+          if [[ ! -f "$LOG" ]]; then
+            echo "No execution log at $LOG — cannot confirm the review ran." >&2
+            exit 1
+          fi
+          python3 - "$LOG" <<'PY'
+          import json, sys
+          raw = open(sys.argv[1]).read()
+          try:                                   # the action writes an array today,
+              entries = json.loads(raw)          # but has emitted one object per line
+          except json.JSONDecodeError:           # before; accept either rather than
+              entries = [json.loads(l) for l in  # failing the job on a format change
+                         raw.splitlines() if l.strip()]
+          if isinstance(entries, dict):
+              entries = [entries]
+          result = next((e for e in reversed(entries) if e.get("type") == "result"), None)
+          if result is None:
+              print("::error::No result entry in the execution log; the review did not complete.")
+              sys.exit(1)
+          if result.get("is_error") or result.get("num_turns", 0) <= 1:
+              # `result` is the session's own final message, and on a failure that is
+              # the error — "Failed to authenticate. API Error: 401 Invalid bearer
+              # token" is what three rounds of guessing were missing. Truncated,
+              # because on some failures it is the model's prose rather than a code.
+              detail = str(result.get("result") or "")[:300]
+              print(
+                  "::error::The review did not run: is_error="
+                  f"{result.get('is_error')} num_turns={result.get('num_turns')} "
+                  f"api_error_status={result.get('api_error_status')} "
+                  f"subtype={result.get('subtype')}. The PR has a placeholder comment, "
+                  "not a review."
+              )
+              if detail:
+                  print(f"::error::Reported reason: {detail}")
+              sys.exit(1)
+          print(f"Review completed: {result.get('num_turns')} turns, "
+                f"cost {result.get('total_cost_usd')}.")
+          PY
