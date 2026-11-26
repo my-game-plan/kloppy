@@ -4,6 +4,10 @@ from pathlib import Path
 import pytest
 
 from kloppy import statsperform
+from kloppy.infra.serializers.event.statsperform.deserializer import (
+    _find_player_on_event,
+)
+from kloppy.infra.serializers.event.statsperform.parsers.base import OptaEvent
 from kloppy.domain import (
     DatasetFlag,
     EventDataset,
@@ -472,3 +476,64 @@ class TestStatsPerformTracking:
                 tracking_system="sportvu",
                 coordinates="kloppy",
             )
+
+
+class TestSubstitutionPairing:
+    """Player-off events pair with their own team's player-on event."""
+
+    @staticmethod
+    def _event(id, event_id, type_id, team, player, qualifiers=None):
+        return OptaEvent(
+            id=str(id),
+            event_id=event_id,
+            type_id=type_id,
+            period_id=2,
+            time_min=45,
+            time_sec=0,
+            x=0.0,
+            y=0.0,
+            timestamp=datetime(2026, 11, 26, 2, 15, 2),
+            last_modified=datetime(2026, 11, 26, 2, 16, 34),
+            contestant_id=team,
+            player_id=player,
+            qualifiers=qualifiers or {},
+        )
+
+    def test_interleaved_half_time_substitutions(self):
+        """Both teams subbing at once: off A, off B, on A, on B.
+
+        Shape taken from Barcelona SC - Independiente del Valle (F24
+        2687561), where pairing with the next raw event lost both
+        replacements and crashed the minutes-played aggregation.
+        """
+        raw_events = [
+            self._event(
+                1, 386, 18, "6073", "167059", {55: "387", 44: "Midfielder"}
+            ),
+            self._event(
+                2, 348, 18, "1162", "435686", {55: "349", 44: "Forward"}
+            ),
+            self._event(
+                3, 387, 19, "6073", "534339", {55: "386", 44: "Midfielder"}
+            ),
+            self._event(
+                4, 349, 19, "1162", "645132", {55: "348", 44: "Midfielder"}
+            ),
+        ]
+
+        assert _find_player_on_event(raw_events, 0).player_id == "534339"
+        assert _find_player_on_event(raw_events, 1).player_id == "645132"
+
+    def test_falls_back_to_next_same_team_player_on(self):
+        raw_events = [
+            self._event(1, 10, 18, "A", "a1"),
+            self._event(2, 20, 19, "B", "b2"),
+            self._event(3, 11, 19, "A", "a2"),
+        ]
+
+        assert _find_player_on_event(raw_events, 0).player_id == "a2"
+
+    def test_no_player_on_event(self):
+        raw_events = [self._event(1, 10, 18, "A", "a1")]
+
+        assert _find_player_on_event(raw_events, 0) is None
