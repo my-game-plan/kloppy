@@ -446,13 +446,44 @@ def _parse_formation_change(raw_event: OptaEvent, team: Team) -> Dict:
     return dict(formation_type=formation, player_positions=player_positions)
 
 
-def _parse_substitution(next_event: OptaEvent, team: Team) -> Dict:
+def _find_player_on_event(
+    raw_events: List[OptaEvent], idx: int
+) -> Optional[OptaEvent]:
+    """Find the player-on event that pairs with the player-off at `idx`.
+
+    When both teams substitute at the same moment the feed can interleave
+    them (off A, off B, on A, on B), so the next raw event is not the pair.
+    Qualifier 55 on a player-off holds the team-scoped event_id of its
+    player-on; without it, take the team's next player-on in the period.
+    """
+    player_off = raw_events[idx]
+    related_event_id = player_off.qualifiers.get(55)
+    candidates = [
+        event
+        for event in raw_events[idx + 1 :]
+        if event.type_id == EVENT_TYPE_PLAYER_ON
+        and event.contestant_id == player_off.contestant_id
+        and event.period_id == player_off.period_id
+    ]
+    if related_event_id is not None:
+        for event in candidates:
+            if str(event.event_id) == str(related_event_id):
+                return event
+    return candidates[0] if candidates else None
+
+
+def _parse_substitution(
+    player_off_event: OptaEvent,
+    player_on_event: Optional[OptaEvent],
+    team: Team,
+) -> Dict:
     replacement_player = None
     position = None
-    if next_event.type_id == EVENT_TYPE_PLAYER_ON:
-        replacement_player = team.get_player_by_id(next_event.player_id)
+    if player_on_event is not None:
+        replacement_player = team.get_player_by_id(player_on_event.player_id)
 
-    raw_position_line = next_event.qualifiers.get(44)
+    position_event = player_on_event or player_off_event
+    raw_position_line = position_event.qualifiers.get(44)
     if raw_position_line:
         position = position_line_mapping[raw_position_line]
 
@@ -1217,7 +1248,9 @@ class StatsPerformDeserializer(EventDataDeserializer[StatsPerformInputs]):
                             timedelta(0), generic_event_kwargs["timestamp"]
                         )
                         substitution_event_kwargs = _parse_substitution(
-                            next_event, team
+                            raw_event,
+                            _find_player_on_event(raw_events, idx),
+                            team,
                         )
                         event = self.event_factory.build_substitution(
                             result=None,
