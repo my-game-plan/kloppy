@@ -1532,7 +1532,7 @@ class EventDataset(Dataset[Event]):
 
         Example:
             To generate a synthetic carry event:
-                add_synthetic_event(EventType.CARRY, event_factory=my_event_factory, min_length_meters=3, max_length_meters=60, max_duration=timedelta(seconds=10))
+                add_synthetic_event(EventType.CARRY, event_factory=my_event_factory, min_length_meters=3, max_length_meters=60, max_duration=timedelta(seconds=15))
         """
         if event_type_ == EventType.CARRY:
             from kloppy.domain.services.synthetic_event_generators.carry import (
