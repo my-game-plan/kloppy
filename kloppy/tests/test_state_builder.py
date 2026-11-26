@@ -92,7 +92,8 @@ class TestStateBuilder:
 
             events_per_sequence[sequence_id] += len(events)
 
-        assert events_per_sequence[1] == 5
+        # The fouled player's won ground duel joins the sequence (TAS-4286)
+        assert events_per_sequence[1] == 6
         assert events_per_sequence[89] == 12
         # 2 deflections out for a corner are no longer complete (TAS-4194)
         assert len(poss_switch[PossessionSwitchType.GAIN]) == 141
