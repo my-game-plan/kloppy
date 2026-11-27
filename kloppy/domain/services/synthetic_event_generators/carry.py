@@ -187,12 +187,20 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
             ):
                 continue
 
+            # The team carrying the ball owns it, whatever the next event says.
+            # A provider that only moves possession on an on-ball action
+            # leaves it with the opponent on the event after a won ball: a
+            # keeper's pick-up after a save (Opta), a won duel (SmrtStats,
+            # KoraStats). Copying that onto the carry hands the carry's
+            # seconds to the team without the ball, in the possession split of
+            # minutes played and in every rule that compares an event's team
+            # with its ball owner. 1-7 carries a match, 35 matches, 2026-11.
             generic_event_args = {
                 "event_id": f"carry-{event.event_id}",
                 "coordinates": last_coord,
                 "team": next_event.team,
                 "player": next_event.player,
-                "ball_owning_team": next_event.ball_owning_team,
+                "ball_owning_team": next_event.team,
                 "ball_state": event.ball_state,
                 "period": next_event.period,
                 "timestamp": last_timestamp,

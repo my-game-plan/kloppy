@@ -217,6 +217,25 @@ class TestSyntheticEventGenerator:
         for carry in degenerate:
             assert carry.coordinates != carry.end_coordinates
 
+    def test_a_carry_is_owned_by_the_team_carrying_the_ball(self, base_dir):
+        """The carrying team owns the ball for the length of the carry.
+
+        Opta moves `ball_owning_team` only on an on-ball action, so the event
+        after a won ball (a keeper's pick-up, a won duel) still names the
+        opponent. A carry copied that, and then counted as the opponent's
+        possession. On this fixture that was 4 of 315 carries.
+        """
+        dataset = self._load_dataset_statsperform(base_dir)
+        dataset = dataset.add_synthetic_event(EventType.CARRY)
+
+        carries = dataset.find_all("carry")
+        assert carries, "expected the fixture to generate carries"
+        assert [
+            carry.event_id
+            for carry in carries
+            if carry.ball_owning_team != carry.team
+        ] == []
+
     def test_synthetic_ball_receipt_generator(self, base_dir):
 
         dataset = self._load_dataset_statsbomb(
