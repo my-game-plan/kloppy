@@ -130,6 +130,38 @@ class TestSyntheticEventGenerator:
             > 0.80
         )
 
+    def test_default_keeps_carries_up_to_fifteen_seconds(self, base_dir):
+        """A receiver who waits and then carries is still a carry.
+
+        The default limit is 15 s from the start of the action before the
+        carry; at 10 s a centre-back driving out after a patient receive was
+        dropped. The extra carries are exactly the ones in the 10-15 s gap.
+        """
+        event_types = [
+            event.value for event in EventType if event.value != "CARRY"
+        ]
+        strict = self._load_dataset_statsbomb(
+            base_dir, event_types=event_types
+        ).add_synthetic_event(
+            EventType.CARRY, max_duration=timedelta(seconds=10)
+        )
+        default = self._load_dataset_statsbomb(
+            base_dir, event_types=event_types
+        ).add_synthetic_event(EventType.CARRY)
+
+        strict_ids = {carry.event_id for carry in strict.find_all("carry")}
+        extra = [
+            carry
+            for carry in default.find_all("carry")
+            if carry.event_id not in strict_ids
+        ]
+        assert extra
+        for carry in extra:
+            # The id is "carry-<id of the action the carry follows>".
+            before = default.get_event_by_id(carry.event_id[len("carry-") :])
+            gap = carry.end_timestamp - before.timestamp
+            assert timedelta(seconds=10) < gap <= timedelta(seconds=15)
+
     def test_synthetic_carries_get_a_duration_where_the_feed_allows(
         self, base_dir
     ):

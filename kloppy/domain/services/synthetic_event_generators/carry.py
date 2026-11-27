@@ -40,7 +40,15 @@ class SyntheticCarryGenerator(SyntheticEventGenerator):
         self.event_factory = event_factory or EventFactory()
         self.min_length_meters = kwargs.get("min_length_meters") or 3
         self.max_length_meters = kwargs.get("max_length_meters") or 60
-        self.max_duration = kwargs.get("max_duration") or timedelta(seconds=10)
+        # Measured from the start of the action before the carry, so the
+        # ball's flight and the receiver waiting on it count too. 10 s dropped
+        # real carries: a centre-back who receives, waits for the press and
+        # then drives out. On providers that ship their own carries (StatsBomb,
+        # Impect; 26 matches, 2026-11), every receive-then-play-on of 3 m or
+        # more that took 10-15 s had a carry (87 of 87), 15-20 s 4 of 5 and
+        # past 20 s 2 of 4. On Opta, SmrtStats and KoraStats 15 s recovers
+        # 98 of the 112 carries 10 s dropped in 35 matches.
+        self.max_duration = kwargs.get("max_duration") or timedelta(seconds=15)
         self.max_speed_mps = kwargs.get("max_speed_mps") or 12.0
         self.pass_velocity_estimate_ms = (
             kwargs.get("pass_velocity_estimate_ms")
